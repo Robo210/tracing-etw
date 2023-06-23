@@ -1,6 +1,6 @@
 use tracing::{event, span, Level};
-use tracing_etw::{EtwLayer, EtwFilter};
-use tracing_subscriber::{self, fmt::format::FmtSpan, Layer, prelude::*};
+use tracing_etw::{EtwLayer};
+use tracing_subscriber::{self, fmt::format::FmtSpan, prelude::*};
 
 fn main() {
     // let subscriber = tracing_subscriber::fmt::fmt()

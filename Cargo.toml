@@ -15,3 +15,4 @@ eventheader = "0.2"
 eventheader_dynamic = "0.2"
 lazy_static = "1.4"
 crossbeam-utils = "0.8"
+chrono = {version="0.4", default-features = false, features=["std"]}
