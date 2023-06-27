@@ -1,9 +1,11 @@
-use std::{borrow::Cow, pin::Pin, sync::Arc, collections::HashMap};
+use std::{borrow::Cow, collections::HashMap, pin::Pin, sync::Arc};
 
-use tracing::{Subscriber, span};
-use tracing_subscriber::{Layer}; // filter::{FilterFn}
-use tracelogging::Guid;
 use crossbeam_utils::sync::ShardedLock;
+use tracelogging::Guid;
+use tracing::{span, Subscriber};
+use tracing_subscriber::{registry::LookupSpan, Layer};
+
+use crate::activities::Activities; // filter::{FilterFn}
 
 // Providers go in, but never come out.
 // On Windows this cannot be safely compiled into a dylib, since the providers will never be dropped.
@@ -35,6 +37,13 @@ pub(crate) enum ProviderGroup {
     Linux(Cow<'static, str>),
 }
 
+pub(crate) struct EventBuilderWrapper {
+    #[cfg(any(target_os = "windows"))]
+    pub(crate) eb: tracelogging_dynamic::EventBuilder,
+    #[cfg(any(target_os = "linux"))]
+    pub(crate) eb: eventheader_dynamic::EventBuilder,
+}
+
 pub(crate) struct ProviderWrapper {
     #[cfg(any(target_os = "windows"))]
     provider: tracelogging_dynamic::Provider,
@@ -49,7 +58,11 @@ impl ProviderWrapper {
 
         #[cfg(any(target_os = "linux"))]
         {
-            let es = self.provider.read().unwrap().find_set(level.into(), keyword);
+            let es = self
+                .provider
+                .read()
+                .unwrap()
+                .find_set(level.into(), keyword);
             if es.is_some() {
                 es.unwrap().enabled()
             } else {
@@ -64,7 +77,9 @@ impl ProviderWrapper {
     }
 
     #[cfg(any(target_os = "linux"))]
-    pub(crate) fn get_provider(self: Pin<&Self>) -> Pin<&std::sync::RwLock<eventheader_dynamic::Provider>> {
+    pub(crate) fn get_provider(
+        self: Pin<&Self>,
+    ) -> Pin<&std::sync::RwLock<eventheader_dynamic::Provider>> {
         unsafe { self.map_unchecked(|s| &s.provider) }
     }
 
@@ -94,7 +109,11 @@ impl ProviderWrapper {
     }
 
     #[cfg(all(target_os = "linux"))]
-    pub(crate) fn new(provider_name: &str, _: &Guid, provider_group: &ProviderGroup) -> Pin<Arc<Self>> {
+    pub(crate) fn new(
+        provider_name: &str,
+        _: &Guid,
+        provider_group: &ProviderGroup,
+    ) -> Pin<Arc<Self>> {
         let mut options = eventheader_dynamic::Provider::new_options();
         if let ProviderGroup::Linux(ref name) = provider_group {
             options = *options.group_name(&name);
@@ -108,10 +127,15 @@ impl ProviderWrapper {
         Arc::pin(ProviderWrapper {
             provider: std::sync::RwLock::new(eventheader_dynamic::Provider::new(
                 provider_name,
-                &options
+                &options,
             )),
         })
     }
+}
+
+struct EtwLayerData {
+    activities: Activities,
+    eb: EventBuilderWrapper,
 }
 
 pub struct EtwLayer {
@@ -268,7 +292,10 @@ impl EtwLayer {
         }
     }
 
-    fn get_or_create_provider_from_metadata(&self, metadata: &tracing::Metadata<'_>) -> Pin<Arc<ProviderWrapper>> {
+    fn get_or_create_provider_from_metadata(
+        &self,
+        metadata: &tracing::Metadata<'_>,
+    ) -> Pin<Arc<ProviderWrapper>> {
         let target = if let Some(mod_path) = metadata.module_path() {
             if metadata.target() == mod_path {
                 self.provider_name.as_str()
@@ -283,18 +310,24 @@ impl EtwLayer {
     }
 }
 
-impl<S: Subscriber> Layer<S> for EtwLayer {
-    fn on_register_dispatch(&self, collector: &tracing::Dispatch) {
+impl<S: Subscriber> Layer<S> for EtwLayer
+where
+    S: for<'lookup> LookupSpan<'lookup>,
+{
+    fn on_register_dispatch(&self, _collector: &tracing::Dispatch) {
         // Late init when the layer is installed as a subscriber
         self.validate_config();
     }
 
-    fn on_layer(&mut self, subscriber: &mut S) {
+    fn on_layer(&mut self, _subscriber: &mut S) {
         // Late init when the layer is attached to a subscriber
         self.validate_config();
     }
 
-    fn register_callsite(&self, metadata: &'static tracing::Metadata<'static>) -> tracing::subscriber::Interest {
+    fn register_callsite(
+        &self,
+        metadata: &'static tracing::Metadata<'static>,
+    ) -> tracing::subscriber::Interest {
         let _ = self.get_or_create_provider_from_metadata(metadata);
 
         // Returning "sometimes" means the enabled function will be called every time an event or span is created from the callsite.
@@ -306,31 +339,168 @@ impl<S: Subscriber> Layer<S> for EtwLayer {
         tracing::subscriber::Interest::sometimes()
     }
 
-    fn enabled(&self, metadata: &tracing::Metadata<'_>, ctx: tracing_subscriber::layer::Context<'_, S>) -> bool {
+    fn enabled(
+        &self,
+        metadata: &tracing::Metadata<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) -> bool {
         let provider = self.get_or_create_provider_from_metadata(metadata);
         provider.enabled(map_level(metadata.level()), 0)
     }
 
-    fn event_enabled(&self, _event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) -> bool {
+    fn event_enabled(
+        &self,
+        _event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) -> bool {
         // Whether or not an event is enabled, after its fields have been constructed.
         true
     }
 
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+    fn on_event(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, S>) {
+        let timestamp = std::time::SystemTime::now();
+
+        let current_span = ctx
+            .event_span(event)
+            .map(|evt| evt.id())
+            .map_or(0, |id| (id.into_u64()));
+        let parent_span = ctx
+            .event_span(event)
+            .map_or(0, |evt| evt.parent().map_or(0, |p| p.id().into_u64()));
+
+        let activities = Activities::generate(current_span, parent_span);
+
         let provider = self.get_or_create_provider_from_metadata(event.metadata());
-        provider.as_ref().write_record(std::time::SystemTime::now(), "Event", 1, event, self);
+        provider.as_ref().write_record(
+            timestamp,
+            &activities,
+            event.metadata().name(),
+            map_level(event.metadata().level()).into(),
+            1,
+            event,
+        );
     }
 
-    fn on_enter(&self, _id: &span::Id, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+    fn on_new_span(
+        &self,
+        attrs: &span::Attributes<'_>,
+        id: &span::Id,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let span = ctx.span(id);
+        if span.is_none() {
+            return;
+        }
+
+        let span = span.unwrap();
+        let metadata = span.metadata();
+
+        let parent_span_id = if attrs.is_contextual() {
+            attrs.parent().map_or(0, |id| id.into_u64())
+        } else {
+            0
+        };
+
+        let activities = Activities::generate(id.into_u64(), parent_span_id);
+
+        let provider = self.get_or_create_provider_from_metadata(metadata);
+
+        let eb = provider
+            .as_ref()
+            .new_span(&span, attrs, map_level(metadata.level()).into(), 1, 0);
+
+        span.extensions_mut()
+            .insert(EtwLayerData { activities, eb });
+    }
+
+    fn on_enter(&self, id: &span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
         // A span was started
+        let timestamp = std::time::SystemTime::now();
+
+        let span = ctx.span(id);
+        if let None = span {
+            return;
+        }
+
+        let span = span.unwrap();
+        let metadata = span.metadata();
+
+        let mut extensions = span.extensions_mut();
+        let data = extensions.get_mut::<EtwLayerData>();
+        if data.is_none() {
+            // We got a span that was entered without being new'ed?
+            return;
+        }
+        let data = data.unwrap();
+
+        let provider = self.get_or_create_provider_from_metadata(metadata);
+
+        provider.as_ref().span_start(
+            &mut data.eb.eb,
+            &span,
+            timestamp,
+            &data.activities,
+            map_level(metadata.level()).into(),
+            1,
+            0,
+        );
     }
 
-    fn on_exit(&self, _id: &span::Id, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+    fn on_exit(&self, id: &span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
         // A span was exited
+        let timestamp = std::time::SystemTime::now();
+
+        let span = ctx.span(id);
+        if let None = span {
+            return;
+        }
+
+        let span = span.unwrap();
+        let metadata = span.metadata();
+
+        let mut extensions = span.extensions_mut();
+        let data = extensions.get_mut::<EtwLayerData>();
+        if data.is_none() {
+            // We got a span that was entered without being new'ed?
+            return;
+        }
+        let data = data.unwrap();
+
+        let provider = self.get_or_create_provider_from_metadata(metadata);
+
+        provider
+            .as_ref()
+            .span_stop(&mut data.eb.eb, &span, timestamp, &data.activities);
     }
 
     fn on_close(&self, _id: span::Id, _ctx: tracing_subscriber::layer::Context<'_, S>) {
         // A span was closed
-        // Good for knowing when the log a summary event?
+        // Good for knowing when to log a summary event?
+    }
+
+    fn on_record(
+        &self,
+        id: &span::Id,
+        values: &span::Record<'_>,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        // Values were added to the given span
+
+        let span = ctx.span(id);
+        if let None = span {
+            return;
+        }
+
+        let span = span.unwrap();
+
+        let mut extensions = span.extensions_mut();
+        let data = extensions.get_mut::<EtwLayerData>();
+        if data.is_none() {
+            // We got a span that was entered without being new'ed?
+            return;
+        }
+        let data = data.unwrap();
+
+        ProviderWrapper::add_values(values, &mut data.eb.eb);
     }
 }
