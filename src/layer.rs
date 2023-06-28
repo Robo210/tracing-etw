@@ -6,10 +6,11 @@ use tracing_subscriber::{registry::LookupSpan, Layer};
 
 use crate::activities::Activities; // filter::{FilterFn}
 use crate::providerwrapper::*;
+use crate::values::*;
 
 struct EtwLayerData {
     activities: Activities,
-    eb: EventBuilderWrapper,
+    data: Vec<FieldAndValue>
 }
 
 pub struct EtwLayer {
@@ -277,14 +278,20 @@ where
 
         let activities = Activities::generate(id.into_u64(), parent_span_id);
 
-        let provider = self.get_or_create_provider_from_metadata(metadata);
+        let _ = self.get_or_create_provider_from_metadata(metadata);
 
-        let eb = provider
-            .as_ref()
-            .new_span(&span, attrs, map_level(metadata.level()).into(), 1, 0);
+        // There can be at most 32 fields. We can sort and search a linear array of that size just fine compared to a map.
+        let mut data = Vec::<FieldAndValue>::with_capacity(attrs.fields().len());
+        data.extend(attrs.fields().iter().map(|f| {
+            FieldAndValue { field_name: f.name(), value: ValueTypes::None }
+        }));
+
+        data.sort_by(|a, b| a.field_name.cmp(b.field_name));
+
+        attrs.values().record(&mut ValueVisitor { data: &mut data });
 
         span.extensions_mut()
-            .insert(EtwLayerData { activities, eb });
+            .insert(EtwLayerData { activities, data });
     }
 
     fn on_enter(&self, id: &span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
@@ -310,10 +317,10 @@ where
         let provider = self.get_or_create_provider_from_metadata(metadata);
 
         provider.as_ref().span_start(
-            &mut data.eb.eb,
             &span,
             timestamp,
             &data.activities,
+            &data.data,
             map_level(metadata.level()).into(),
             1,
             0,
@@ -344,7 +351,9 @@ where
 
         provider
             .as_ref()
-            .span_stop(&mut data.eb.eb, &span, timestamp, &data.activities);
+            .span_stop(&span, timestamp, &data.activities, &data.data, map_level(metadata.level()).into(),
+            1,
+            0);
     }
 
     fn on_close(&self, _id: span::Id, _ctx: tracing_subscriber::layer::Context<'_, S>) {
@@ -375,6 +384,6 @@ where
         }
         let data = data.unwrap();
 
-        ProviderWrapper::add_values(values, &mut data.eb.eb);
+        values.record( &mut ValueVisitor { data: &mut data.data });
     }
 }

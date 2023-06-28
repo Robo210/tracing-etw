@@ -1,12 +1,12 @@
 use crate::{
     activities::Activities,
-    providerwrapper::{EventBuilderWrapper, ProviderWrapper}
+    providerwrapper::{ProviderWrapper}, values::*
 };
 use chrono::{Datelike, Timelike};
 use std::{cell::RefCell, fmt::Write, pin::Pin, time::SystemTime};
 use tracelogging::*;
 use tracelogging_dynamic::EventBuilder;
-use tracing::{field, span};
+use tracing::{field};
 use tracing_subscriber::registry::{LookupSpan, SpanRef};
 
 thread_local! {static EBW: std::cell::RefCell<EventBuilder>  = RefCell::new(EventBuilder::new());}
@@ -45,83 +45,75 @@ impl<'a> field::Visit for ValueVisitor<'a> {
             return;
         }
 
-        self.eb.add_str8(field.name(), string, OutType::String, 0);
+        add_field_value(self.eb, &FieldAndValue { field_name: field.name(), value: ValueTypes::from(string) })
     }
 
     fn record_f64(&mut self, field: &field::Field, value: f64) {
-        self.eb.add_f64(field.name(), value, OutType::Signed, 0);
+        add_field_value(self.eb, &FieldAndValue { field_name: field.name(), value: ValueTypes::from(value) })
     }
 
     fn record_i64(&mut self, field: &field::Field, value: i64) {
-        self.eb.add_i64(field.name(), value, OutType::Signed, 0);
+        add_field_value(self.eb, &FieldAndValue { field_name: field.name(), value: ValueTypes::from(value) })
     }
 
     fn record_u64(&mut self, field: &field::Field, value: u64) {
-        self.eb.add_u64(field.name(), value, OutType::Unsigned, 0);
+        add_field_value(self.eb, &FieldAndValue { field_name: field.name(), value: ValueTypes::from(value) })
     }
 
     fn record_i128(&mut self, field: &field::Field, value: i128) {
-        unsafe {
-            self.eb.add_u64_sequence(
-                field.name(),
-                core::slice::from_raw_parts(&value.to_le_bytes() as *const u8 as *const u64, 2),
-                OutType::Hex,
-                0,
-            );
-        }
+        add_field_value(self.eb, &FieldAndValue { field_name: field.name(), value: ValueTypes::from(value) })
     }
 
     fn record_u128(&mut self, field: &field::Field, value: u128) {
-        unsafe {
-            self.eb.add_u64_sequence(
-                field.name(),
-                core::slice::from_raw_parts(&value.to_le_bytes() as *const u8 as *const u64, 2),
-                OutType::Hex,
-                0,
-            );
-        }
+        add_field_value(self.eb, &FieldAndValue { field_name: field.name(), value: ValueTypes::from(value) })
     }
 
     fn record_bool(&mut self, field: &field::Field, value: bool) {
-        self.eb
-            .add_bool32(field.name(), value as i32, OutType::Boolean, 0);
+        add_field_value(self.eb, &FieldAndValue { field_name: field.name(), value: ValueTypes::from(value) })
     }
 
     fn record_str(&mut self, field: &field::Field, value: &str) {
-        self.eb.add_str8(field.name(), value, OutType::String, 0);
+        add_field_value(self.eb, &FieldAndValue { field_name: field.name(), value: ValueTypes::from(value.to_string()) })
     }
 
     fn record_error(&mut self, field: &field::Field, value: &(dyn std::error::Error + 'static)) {}
 }
 
-impl ProviderWrapper {
-    pub(crate) fn new_span<'a, R>(
-        self: Pin<&Self>,
-        span: &SpanRef<'a, R>,
-        attrs: &span::Attributes<'_>,
-        level: u8,
-        keyword: u64,
-        event_tag: u32,
-    ) -> EventBuilderWrapper
-    where
-        R: LookupSpan<'a>,
-    {
-        let span_name = span.name();
-
-        let mut eb = tracelogging_dynamic::EventBuilder::new();
-        eb.reset(span_name, level.into(), keyword, event_tag);
-
-        attrs.values().record(&mut ValueVisitor { eb: &mut eb });
-
-        EventBuilderWrapper { eb }
+fn add_field_value(eb: &mut EventBuilder, fv: &FieldAndValue) {
+    match fv.value {
+        ValueTypes::None => (),
+        ValueTypes::v_u64(u) => { eb.add_u64(fv.field_name, u, OutType::Unsigned, 0); }
+        ValueTypes::v_i64(i) => { eb.add_i64(fv.field_name, i, OutType::Signed, 0); }
+        ValueTypes::v_u128(u) => unsafe {
+            eb.add_u64_sequence(
+                fv.field_name,
+                core::slice::from_raw_parts(&u.to_le_bytes() as *const u8 as *const u64, 2),
+                OutType::Hex,
+                0,
+            );
+        }
+        ValueTypes::v_i128(i) => unsafe {
+            eb.add_u64_sequence(
+                fv.field_name,
+                core::slice::from_raw_parts(&i.to_le_bytes() as *const u8 as *const u64, 2),
+                OutType::Hex,
+                0,
+            );
+        }
+        ValueTypes::v_f64(f) => { eb.add_f64(fv.field_name, f, OutType::Signed, 0); }
+        ValueTypes::v_bool(b) => { eb.add_bool32(fv.field_name, b as i32, OutType::Boolean, 0); }
+        ValueTypes::v_str(ref s) => { eb.add_str8(fv.field_name, s.as_ref(), OutType::String, 0); }
+        ValueTypes::v_char(c) => { eb.add_u8(fv.field_name, c as u8, OutType::String, 0); }
     }
+}
 
+impl ProviderWrapper {
     pub(crate) fn span_start<'a, R>(
         self: Pin<&Self>,
-        eb: &mut EventBuilder,
         span: &SpanRef<'a, R>,
         timestamp: SystemTime,
         activities: &Activities,
+        data: &[crate::values::FieldAndValue],
         level: u8,
         keyword: u64,
         event_tag: u32,
@@ -130,60 +122,80 @@ impl ProviderWrapper {
     {
         let span_name = span.name();
 
-        eb.opcode(Opcode::Start);
+        EBW.with(|eb| {
+            let mut eb = eb.borrow_mut();
 
-        eb.add_systemtime(
-            "start time",
-            &Into::<Win32SystemTime>::into(timestamp).st,
-            OutType::DateTimeUtc,
-            0,
-        );
+            eb.reset(span_name, level.into(), keyword, event_tag);
+            eb.opcode(Opcode::Start);
 
-        let _ = eb.write(
-            &self.get_provider(),
-            Some(&tracelogging_dynamic::Guid::from_bytes_le(
-                &activities.activity_id,
-            )),
-            activities
-                .parent_activity_id
-                .map(|id| tracelogging_dynamic::Guid::from_bytes_le(&id))
-                .as_ref(),
-        );
+            eb.add_systemtime(
+                "start time",
+                &Into::<Win32SystemTime>::into(timestamp).st,
+                OutType::DateTimeUtc,
+                0,
+            );
 
-        eb.reset(span_name, level.into(), keyword, event_tag);
-        eb.opcode(Opcode::Stop);
+            for fv in data {
+                add_field_value(&mut eb, fv);
+            }
+
+            let _ = eb.write(
+                &self.get_provider(),
+                Some(&tracelogging_dynamic::Guid::from_bytes_le(
+                    &activities.activity_id,
+                )),
+                activities
+                    .parent_activity_id
+                    .map(|id| tracelogging_dynamic::Guid::from_bytes_le(&id))
+                    .as_ref(),
+            );
+        });
+
+        
     }
 
     pub(crate) fn span_stop<'a, R>(
         self: Pin<&Self>,
-        eb: &mut EventBuilder,
-        _span: &SpanRef<'a, R>,
+        span: &SpanRef<'a, R>,
         timestamp: SystemTime,
         activities: &Activities,
+        data: &[crate::values::FieldAndValue],
+        level: u8,
+        keyword: u64,
+        event_tag: u32,
     ) where
         R: LookupSpan<'a>,
     {
-        eb.add_systemtime(
-            "stop time",
-            &Into::<Win32SystemTime>::into(timestamp).st,
-            OutType::DateTimeUtc,
-            0,
-        );
+        let span_name = span.name();
 
-        let _ = eb.write(
-            &self.get_provider(),
-            Some(&tracelogging_dynamic::Guid::from_bytes_le(
-                &activities.activity_id,
-            )),
-            activities
-                .parent_activity_id
-                .map(|id| tracelogging_dynamic::Guid::from_bytes_le(&id))
-                .as_ref(),
-        );
-    }
+        EBW.with(|eb| {
+            let mut eb = eb.borrow_mut();
 
-    pub(crate) fn add_values(values: &span::Record<'_>, eb: &mut EventBuilder) {
-        values.record(&mut ValueVisitor { eb });
+            eb.reset(span_name, level.into(), keyword, event_tag);
+            eb.opcode(Opcode::Stop);
+
+            eb.add_systemtime(
+                "stop time",
+                &Into::<Win32SystemTime>::into(timestamp).st,
+                OutType::DateTimeUtc,
+                0,
+            );
+
+            for fv in data {
+                add_field_value(&mut eb, fv);
+            }
+
+            let _ = eb.write(
+                &self.get_provider(),
+                Some(&tracelogging_dynamic::Guid::from_bytes_le(
+                    &activities.activity_id,
+                )),
+                activities
+                    .parent_activity_id
+                    .map(|id| tracelogging_dynamic::Guid::from_bytes_le(&id))
+                    .as_ref(),
+            );
+        });
     }
 
     pub(crate) fn write_record(

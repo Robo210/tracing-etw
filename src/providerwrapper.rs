@@ -32,13 +32,6 @@ pub(crate) enum ProviderGroup {
     Linux(Cow<'static, str>),
 }
 
-pub(crate) struct EventBuilderWrapper {
-    #[cfg(any(target_os = "windows"))]
-    pub(crate) eb: tracelogging_dynamic::EventBuilder,
-    #[cfg(any(target_os = "linux"))]
-    pub(crate) eb: eventheader_dynamic::EventBuilder,
-}
-
 pub(crate) struct ProviderWrapper {
     #[cfg(any(target_os = "windows"))]
     provider: tracelogging_dynamic::Provider,

@@ -6,5 +6,6 @@ mod etw;
 mod layer;
 mod providerwrapper;
 mod user_events;
+mod values;
 
 pub use layer::*;
