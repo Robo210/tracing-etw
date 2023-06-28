@@ -1,7 +1,6 @@
 use crate::{
     activities::Activities,
-    layer::{map_level, ProviderWrapper},
-    EtwLayer, EventBuilderWrapper,
+    providerwrapper::{EventBuilderWrapper, ProviderWrapper}
 };
 use chrono::{Datelike, Timelike};
 use std::{cell::RefCell, fmt::Write, pin::Pin, time::SystemTime};
