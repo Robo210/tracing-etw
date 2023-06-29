@@ -1,6 +1,5 @@
 use crate::{
     activities::Activities,
-    providerwrapper::{AddFieldAndValue, ProviderGroup},
     values::*,
 };
 use chrono::{Datelike, Timelike};
@@ -8,6 +7,8 @@ use std::{cell::RefCell, ops::DerefMut, pin::Pin, time::SystemTime, sync::Arc};
 use tracelogging::*;
 use tracelogging_dynamic::EventBuilder;
 use tracing_subscriber::registry::{LookupSpan, SpanRef};
+
+use super::ProviderGroup;
 
 thread_local! {static EBW: std::cell::RefCell<EventBuilder>  = RefCell::new(EventBuilder::new());}
 

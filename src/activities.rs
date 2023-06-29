@@ -1,5 +1,7 @@
 pub(crate) struct Activities {
+    #[allow(dead_code)] // Code is considered dead on non-Windows/linux
     pub(crate) activity_id: [u8; 16],                // Guid
+    #[allow(dead_code)]
     pub(crate) parent_activity_id: Option<[u8; 16]>, // Guid
 }
 

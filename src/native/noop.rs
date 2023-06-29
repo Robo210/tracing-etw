@@ -2,7 +2,9 @@ use std::{pin::Pin, time::SystemTime, sync::Arc};
 
 use tracing_subscriber::registry::{LookupSpan, SpanRef};
 
-use crate::{activities::Activities, providerwrapper::{AddFieldAndValue, ProviderGroup}, values::FieldAndValue};
+use crate::{activities::Activities, values::*};
+
+use super::ProviderGroup;
 
 pub(crate) struct EventBuilderWrapper<'a> {
     _p: core::marker::PhantomData<&'a u8>

@@ -3,7 +3,7 @@ use std::fmt::Write;
 
 use tracing::field;
 
-use crate::{providerwrapper::{AddFieldAndValue}, native::EventBuilderWrapper};
+use crate::{native::EventBuilderWrapper};
 
 #[allow(non_camel_case_types)]
 pub(crate) enum ValueTypes {
@@ -146,6 +146,10 @@ impl<'a> field::Visit for ValueVisitor<'a> {
     }
 
     fn record_error(&mut self, _field: &field::Field, _value: &(dyn std::error::Error + 'static)) {}
+}
+
+pub(crate) trait AddFieldAndValue {
+    fn add_field_value(&mut self, fv: &crate::values::FieldAndValue);
 }
 
 impl<'a> field::Visit for EventBuilderWrapper<'a> {

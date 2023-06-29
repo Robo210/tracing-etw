@@ -1,12 +1,14 @@
 use crate::{
     activities::Activities,
-    providerwrapper::{map_level, AddFieldAndValue, ProviderGroup},
+    map_level,
     values::*,
 };
 use eventheader::*;
 use eventheader_dynamic::EventBuilder;
 use std::{cell::RefCell, ops::DerefMut, pin::Pin, sync::Arc, time::SystemTime};
 use tracing_subscriber::registry::{LookupSpan, SpanRef};
+
+use super::ProviderGroup;
 
 thread_local! {static EBW: std::cell::RefCell<EventBuilder>  = RefCell::new(EventBuilder::new());}
 

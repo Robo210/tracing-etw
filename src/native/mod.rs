@@ -18,3 +18,38 @@ mod user_events;
 pub(crate) use user_events::ProviderWrapper;
 #[cfg(target_os = "linux")]
 pub(crate) use user_events::EventBuilderWrapper;
+
+pub(crate) struct GuidWrapper([u8; 16]);
+
+impl From<&tracelogging::Guid> for GuidWrapper {
+    fn from(value: &tracelogging::Guid) -> Self {
+        Self(*value.as_bytes_raw())
+    }
+}
+
+impl From<&eventheader::Guid> for GuidWrapper {
+    fn from(value: &eventheader::Guid) -> Self {
+        Self(*value.as_bytes_raw())
+    }
+}
+
+impl From<GuidWrapper> for tracelogging::Guid {
+    fn from(value: GuidWrapper) -> Self {
+        unsafe { core::mem::transmute(value.0) }
+    }
+}
+
+impl From<GuidWrapper> for eventheader::Guid {
+    fn from(value: GuidWrapper) -> Self {
+        unsafe { core::mem::transmute(value.0) }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) enum ProviderGroup {
+    Unset,
+    #[allow(dead_code)]
+    Windows(tracelogging::Guid),
+    #[allow(dead_code)]
+    Linux(std::borrow::Cow<'static, str>),
+}
