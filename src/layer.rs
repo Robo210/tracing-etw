@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::{pin::Pin, sync::Arc};
 
 use crossbeam_utils::sync::ShardedLock;
+use smallvec::SmallVec;
 use tracelogging::Guid;
 use tracing::{span, Subscriber};
 use tracing_subscriber::{registry::LookupSpan, Layer};
@@ -19,7 +20,8 @@ lazy_static! {
 
 struct EtwLayerData {
     activities: Activities,
-    data: Vec<FieldAndValue>,
+    data: SmallVec::<[FieldAndValue; 5]>, // Original metadata order
+    indexes: arrayvec::ArrayVec::<u8, 32>, // Sorted indexes for the data array
 }
 
 pub struct EtwLayer {
@@ -294,18 +296,24 @@ where
         let _ = self.get_or_create_provider_from_metadata(metadata);
 
         // There can be at most 32 fields. We can sort and search a linear array of that size just fine compared to a map.
-        let mut data = Vec::<FieldAndValue>::with_capacity(attrs.fields().len());
+        // We'll allocate room for 5 items inline (close to but not exceeding 256 bytes) and hope that covers the common case.
+        let mut data = SmallVec::<[FieldAndValue; 5]>::with_capacity(attrs.fields().len());
         data.extend(attrs.fields().iter().map(|f| FieldAndValue {
             field_name: f.name(),
             value: ValueTypes::None,
         }));
 
-        data.sort_by(|a, b| a.field_name.cmp(b.field_name));
+        let mut indexes = arrayvec::ArrayVec::<u8, 32>::new();
+        for i in 0..data.len() {
+            indexes.push(i as u8);
+        }
 
-        attrs.values().record(&mut ValueVisitor { data: &mut data });
+        indexes.sort_by_key(|idx| data[*idx as usize].field_name);
+
+        attrs.values().record(&mut ValueVisitor { data: &mut data, indexes: &indexes });
 
         span.extensions_mut()
-            .insert(EtwLayerData { activities, data });
+            .insert(EtwLayerData { activities, data, indexes });
     }
 
     fn on_enter(&self, id: &span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
@@ -404,6 +412,7 @@ where
 
         values.record(&mut ValueVisitor {
             data: &mut data.data,
+            indexes: &data.indexes,
         });
     }
 }

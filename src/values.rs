@@ -84,22 +84,17 @@ pub(crate) struct FieldAndValue {
 }
 
 pub(crate) struct ValueVisitor<'a> {
-    pub(crate) data: &'a mut Vec<FieldAndValue>,
+    pub(crate) data: &'a mut smallvec::SmallVec::<[FieldAndValue; 5]>,
+    pub(crate) indexes: &'a arrayvec::ArrayVec::<u8, 32>,
 }
 
 impl<'a> ValueVisitor<'a> {
-    fn update_or_add_value(&mut self, field_name: &'static str, value: ValueTypes) {
-        let res = self.data.binary_search_by(|f| f.field_name.cmp(field_name));
-        if let Err(idx) = res {
-            self.data.insert(
-                idx,
-                FieldAndValue {
-                    field_name: field_name,
-                    value,
-                },
-            );
+    fn update_value(&mut self, field_name: &'static str, value: ValueTypes) {
+        let res = self.indexes.binary_search_by_key(&field_name, |idx| self.data[*idx as usize].field_name);
+        if let Err(_) = res {
+            return; // We don't support (and don't need to support) adding new fields that weren't in the original metadata
         } else {
-            self.data[res.unwrap()].value = value;
+            self.data[self.indexes[res.unwrap()] as usize].value = value;
         }
     }
 }
@@ -111,35 +106,35 @@ impl<'a> field::Visit for ValueVisitor<'a> {
             return;
         }
 
-        self.update_or_add_value(field.name(), ValueTypes::v_str(Cow::from(string)));
+        self.update_value(field.name(), ValueTypes::v_str(Cow::from(string)));
     }
 
     fn record_f64(&mut self, field: &field::Field, value: f64) {
-        self.update_or_add_value(field.name(), ValueTypes::v_f64(value));
+        self.update_value(field.name(), ValueTypes::v_f64(value));
     }
 
     fn record_i64(&mut self, field: &field::Field, value: i64) {
-        self.update_or_add_value(field.name(), ValueTypes::v_i64(value));
+        self.update_value(field.name(), ValueTypes::v_i64(value));
     }
 
     fn record_u64(&mut self, field: &field::Field, value: u64) {
-        self.update_or_add_value(field.name(), ValueTypes::v_u64(value));
+        self.update_value(field.name(), ValueTypes::v_u64(value));
     }
 
     fn record_i128(&mut self, field: &field::Field, value: i128) {
-        self.update_or_add_value(field.name(), ValueTypes::v_i128(value));
+        self.update_value(field.name(), ValueTypes::v_i128(value));
     }
 
     fn record_u128(&mut self, field: &field::Field, value: u128) {
-        self.update_or_add_value(field.name(), ValueTypes::v_u128(value));
+        self.update_value(field.name(), ValueTypes::v_u128(value));
     }
 
     fn record_bool(&mut self, field: &field::Field, value: bool) {
-        self.update_or_add_value(field.name(), ValueTypes::v_bool(value));
+        self.update_value(field.name(), ValueTypes::v_bool(value));
     }
 
     fn record_str(&mut self, field: &field::Field, value: &str) {
-        self.update_or_add_value(
+        self.update_value(
             field.name(),
             ValueTypes::v_str(Cow::from(value.to_string())),
         );
