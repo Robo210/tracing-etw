@@ -3,6 +3,8 @@ use std::fmt::Write;
 
 use tracing::field;
 
+use crate::{providerwrapper::{AddFieldAndValue}, native::EventBuilderWrapper};
+
 #[allow(non_camel_case_types)]
 pub(crate) enum ValueTypes {
     None,
@@ -89,7 +91,13 @@ impl<'a> ValueVisitor<'a> {
     fn update_or_add_value(&mut self, field_name: &'static str, value: ValueTypes) {
         let res = self.data.binary_search_by(|f| f.field_name.cmp(field_name));
         if let Err(idx) = res {
-            self.data.insert(idx, FieldAndValue { field_name: field_name, value } );
+            self.data.insert(
+                idx,
+                FieldAndValue {
+                    field_name: field_name,
+                    value,
+                },
+            );
         } else {
             self.data[res.unwrap()].value = value;
         }
@@ -131,8 +139,77 @@ impl<'a> field::Visit for ValueVisitor<'a> {
     }
 
     fn record_str(&mut self, field: &field::Field, value: &str) {
-        self.update_or_add_value(field.name(), ValueTypes::v_str(Cow::from(value.to_string())));
+        self.update_or_add_value(
+            field.name(),
+            ValueTypes::v_str(Cow::from(value.to_string())),
+        );
     }
 
-    fn record_error(&mut self, field: &field::Field, value: &(dyn std::error::Error + 'static)) {}
+    fn record_error(&mut self, _field: &field::Field, _value: &(dyn std::error::Error + 'static)) {}
+}
+
+impl<'a> field::Visit for EventBuilderWrapper<'a> {
+    fn record_debug(&mut self, field: &field::Field, value: &dyn std::fmt::Debug) {
+        let mut string = String::with_capacity(10);
+        if write!(string, "{:?}", value).is_err() {
+            // TODO: Needs to do a heap allocation
+            return;
+        }
+
+        self.add_field_value(&FieldAndValue {
+            field_name: field.name(),
+            value: ValueTypes::from(string),
+        })
+    }
+
+    fn record_f64(&mut self, field: &field::Field, value: f64) {
+        self.add_field_value(&FieldAndValue {
+            field_name: field.name(),
+            value: ValueTypes::from(value),
+        })
+    }
+
+    fn record_i64(&mut self, field: &field::Field, value: i64) {
+        self.add_field_value(&FieldAndValue {
+            field_name: field.name(),
+            value: ValueTypes::from(value),
+        })
+    }
+
+    fn record_u64(&mut self, field: &field::Field, value: u64) {
+        self.add_field_value(&FieldAndValue {
+            field_name: field.name(),
+            value: ValueTypes::from(value),
+        })
+    }
+
+    fn record_i128(&mut self, field: &field::Field, value: i128) {
+        self.add_field_value(&FieldAndValue {
+            field_name: field.name(),
+            value: ValueTypes::from(value),
+        })
+    }
+
+    fn record_u128(&mut self, field: &field::Field, value: u128) {
+        self.add_field_value(&FieldAndValue {
+            field_name: field.name(),
+            value: ValueTypes::from(value),
+        })
+    }
+
+    fn record_bool(&mut self, field: &field::Field, value: bool) {
+        self.add_field_value(&FieldAndValue {
+            field_name: field.name(),
+            value: ValueTypes::from(value),
+        })
+    }
+
+    fn record_str(&mut self, field: &field::Field, value: &str) {
+        self.add_field_value(&FieldAndValue {
+            field_name: field.name(),
+            value: ValueTypes::from(value.to_string()),
+        })
+    }
+
+    fn record_error(&mut self, _field: &field::Field, _value: &(dyn std::error::Error + 'static)) {}
 }

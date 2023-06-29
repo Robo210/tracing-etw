@@ -1,10 +1,34 @@
-use std::{pin::Pin, time::SystemTime};
+use std::{pin::Pin, time::SystemTime, sync::Arc};
 
-use tracing_subscriber::registry::{SpanRef, LookupSpan};
+use tracing_subscriber::registry::{LookupSpan, SpanRef};
 
-use crate::{activities::Activities, providerwrapper::ProviderWrapper};
+use crate::{activities::Activities, providerwrapper::{AddFieldAndValue, ProviderGroup}, values::FieldAndValue};
+
+pub(crate) struct EventBuilderWrapper<'a> {
+    _p: core::marker::PhantomData<&'a u8>
+}
+
+impl AddFieldAndValue for EventBuilderWrapper<'_> {
+    fn add_field_value(&mut self, _fv: &FieldAndValue) {
+    }
+}
+
+pub(crate) struct ProviderWrapper;
 
 impl ProviderWrapper {
+    pub(crate) fn new(
+        _provider_name: &str,
+        _provider_id: &tracelogging::Guid,
+        _provider_group: &ProviderGroup,
+    ) -> Pin<Arc<Self>> {
+        Arc::pin(Self)
+    }
+
+    #[inline(always)]
+    pub(crate) fn enabled(&self, _level: u8, _keyword: u64) -> bool {
+        false
+    }
+
     pub(crate) fn span_start<'a, R>(
         self: Pin<&Self>,
         _span: &SpanRef<'a, R>,

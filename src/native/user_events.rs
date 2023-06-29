@@ -1,90 +1,149 @@
 use crate::{
     activities::Activities,
-    providerwrapper::{ProviderWrapper}, values::*
+    providerwrapper::{map_level, AddFieldAndValue, ProviderGroup},
+    values::*,
 };
-use chrono::{Datelike, Timelike};
-use std::{cell::RefCell, fmt::Write, pin::Pin, time::SystemTime};
 use eventheader::*;
 use eventheader_dynamic::EventBuilder;
-use tracing::{field};
+use std::{cell::RefCell, ops::DerefMut, pin::Pin, sync::Arc, time::SystemTime};
 use tracing_subscriber::registry::{LookupSpan, SpanRef};
 
 thread_local! {static EBW: std::cell::RefCell<EventBuilder>  = RefCell::new(EventBuilder::new());}
 
-struct ValueVisitor<'a> {
-    eb: &'a mut EventBuilder,
-}
-impl<'a> field::Visit for ValueVisitor<'a> {
-    fn record_debug(&mut self, field: &field::Field, value: &dyn std::fmt::Debug) {
-        let mut string = String::with_capacity(10);
-        if write!(string, "{:?}", value).is_err() {
-            // TODO: Needs to do a heap allocation
-            return;
-        }
-
-        add_field_value(self.eb, &FieldAndValue { field_name: field.name(), value: ValueTypes::from(string) })
-    }
-
-    fn record_f64(&mut self, field: &field::Field, value: f64) {
-        add_field_value(self.eb, &FieldAndValue { field_name: field.name(), value: ValueTypes::from(value) })
-    }
-
-    fn record_i64(&mut self, field: &field::Field, value: i64) {
-        add_field_value(self.eb, &FieldAndValue { field_name: field.name(), value: ValueTypes::from(value) })
-    }
-
-    fn record_u64(&mut self, field: &field::Field, value: u64) {
-        add_field_value(self.eb, &FieldAndValue { field_name: field.name(), value: ValueTypes::from(value) })
-    }
-
-    fn record_i128(&mut self, field: &field::Field, value: i128) {
-        add_field_value(self.eb, &FieldAndValue { field_name: field.name(), value: ValueTypes::from(value) })
-    }
-
-    fn record_u128(&mut self, field: &field::Field, value: u128) {
-        add_field_value(self.eb, &FieldAndValue { field_name: field.name(), value: ValueTypes::from(value) })
-    }
-
-    fn record_bool(&mut self, field: &field::Field, value: bool) {
-        add_field_value(self.eb, &FieldAndValue { field_name: field.name(), value: ValueTypes::from(value) })
-    }
-
-    fn record_str(&mut self, field: &field::Field, value: &str) {
-        add_field_value(self.eb, &FieldAndValue { field_name: field.name(), value: ValueTypes::from(value.to_string()) })
-    }
-
-    fn record_error(&mut self, field: &field::Field, value: &(dyn std::error::Error + 'static)) {}
+pub(crate) struct EventBuilderWrapper<'a> {
+    pub(crate) eb: &'a mut eventheader_dynamic::EventBuilder,
 }
 
-fn add_field_value(eb: &mut EventBuilder, fv: &FieldAndValue) {
-    match fv.value {
-        ValueTypes::None => (),
-        ValueTypes::v_u64(u) => { eb.add_value(fv.field_name, u, FieldFormat::Default, 0); }
-        ValueTypes::v_i64(i) => { eb.add_value(fv.field_name, i, FieldFormat::SignedInt, 0); }
-        ValueTypes::v_u128(u) => unsafe {
-            eb.add_value_sequence(
-                fv.field_name,
-                core::slice::from_raw_parts(&u.to_le_bytes() as *const u8 as *const u64, 2),
-                FieldFormat::HexInt,
-                0,
-            );
+impl AddFieldAndValue for EventBuilderWrapper<'_> {
+    fn add_field_value(&mut self, fv: &FieldAndValue) {
+        match fv.value {
+            ValueTypes::None => (),
+            ValueTypes::v_u64(u) => {
+                self.eb.add_value(fv.field_name, u, FieldFormat::Default, 0);
+            }
+            ValueTypes::v_i64(i) => {
+                self.eb
+                    .add_value(fv.field_name, i, FieldFormat::SignedInt, 0);
+            }
+            ValueTypes::v_u128(u) => unsafe {
+                self.eb.add_value_sequence(
+                    fv.field_name,
+                    core::slice::from_raw_parts(&u.to_le_bytes() as *const u8 as *const u64, 2),
+                    FieldFormat::HexInt,
+                    0,
+                );
+            },
+            ValueTypes::v_i128(i) => unsafe {
+                self.eb.add_value_sequence(
+                    fv.field_name,
+                    core::slice::from_raw_parts(&i.to_le_bytes() as *const u8 as *const u64, 2),
+                    FieldFormat::HexInt,
+                    0,
+                );
+            },
+            ValueTypes::v_f64(f) => {
+                self.eb.add_value(fv.field_name, f, FieldFormat::Float, 0);
+            }
+            ValueTypes::v_bool(b) => {
+                self.eb
+                    .add_value(fv.field_name, b as i32, FieldFormat::Boolean, 0);
+            }
+            ValueTypes::v_str(ref s) => {
+                self.eb
+                    .add_str(fv.field_name, s.as_ref(), FieldFormat::Default, 0);
+            }
+            ValueTypes::v_char(c) => {
+                self.eb
+                    .add_value(fv.field_name, c as u8, FieldFormat::String8, 0);
+            }
         }
-        ValueTypes::v_i128(i) => unsafe {
-            eb.add_value_sequence(
-                fv.field_name,
-                core::slice::from_raw_parts(&i.to_le_bytes() as *const u8 as *const u64, 2),
-                FieldFormat::HexInt,
-                0,
-            );
-        }
-        ValueTypes::v_f64(f) => { eb.add_value(fv.field_name, f, FieldFormat::Float, 0); }
-        ValueTypes::v_bool(b) => { eb.add_value(fv.field_name, b as i32, FieldFormat::Boolean, 0); }
-        ValueTypes::v_str(ref s) => { eb.add_str(fv.field_name, s.as_ref(), FieldFormat::Default, 0); }
-        ValueTypes::v_char(c) => { eb.add_value(fv.field_name, c as u8, FieldFormat::String8, 0); }
     }
+}
+
+pub(crate) struct ProviderWrapper {
+    provider: std::sync::RwLock<eventheader_dynamic::Provider>,
 }
 
 impl ProviderWrapper {
+    fn find_set(
+        self: Pin<&Self>,
+        level: eventheader_dynamic::Level,
+        keyword: u64,
+    ) -> Option<Arc<eventheader_dynamic::EventSet>> {
+        self.get_provider().read().unwrap().find_set(level, keyword)
+    }
+
+    fn register_set(
+        self: Pin<&Self>,
+        level: eventheader_dynamic::Level,
+        keyword: u64,
+    ) -> Arc<eventheader_dynamic::EventSet> {
+        self.get_provider()
+            .write()
+            .unwrap()
+            .register_set(level, keyword)
+    }
+
+    fn get_provider(
+        self: Pin<&Self>,
+    ) -> Pin<&std::sync::RwLock<eventheader_dynamic::Provider>> {
+        unsafe { self.map_unchecked(|s| &s.provider) }
+    }
+
+    pub(crate) fn new(
+        provider_name: &str,
+        _: &eventheader::Guid,
+        provider_group: &ProviderGroup,
+    ) -> Pin<Arc<Self>> {
+        let mut options = eventheader_dynamic::Provider::new_options();
+        if let ProviderGroup::Linux(ref name) = provider_group {
+            options = *options.group_name(&name);
+        }
+        let mut provider = eventheader_dynamic::Provider::new(provider_name, &options);
+
+        provider.register_set(
+            eventheader_dynamic::Level::from_int(map_level(&tracing::Level::ERROR)),
+            1,
+        );
+        provider.register_set(
+            eventheader_dynamic::Level::from_int(map_level(&tracing::Level::WARN)),
+            1,
+        );
+        provider.register_set(
+            eventheader_dynamic::Level::from_int(map_level(&tracing::Level::INFO)),
+            1,
+        );
+        provider.register_set(
+            eventheader_dynamic::Level::from_int(map_level(&tracing::Level::DEBUG)),
+            1,
+        );
+        provider.register_set(
+            eventheader_dynamic::Level::from_int(map_level(&tracing::Level::TRACE)),
+            1,
+        );
+
+        Arc::pin(ProviderWrapper {
+            provider: std::sync::RwLock::new(eventheader_dynamic::Provider::new(
+                provider_name,
+                &options,
+            )),
+        })
+    }
+
+    #[inline]
+    pub(crate) fn enabled(&self, level: u8, keyword: u64) -> bool {
+        let es = self
+            .provider
+            .read()
+            .unwrap()
+            .find_set(eventheader_dynamic::Level::from_int(level), keyword);
+        if es.is_some() {
+            es.unwrap().enabled()
+        } else {
+            false
+        }
+    }
+
     pub(crate) fn span_start<'a, R>(
         self: Pin<&Self>,
         span: &SpanRef<'a, R>,
@@ -99,6 +158,12 @@ impl ProviderWrapper {
     {
         let span_name = span.name();
 
+        let es = if let Some(es) = self.find_set(level.into(), keyword) {
+            es
+        } else {
+            self.register_set(level.into(), keyword)
+        };
+
         EBW.with(|eb| {
             let mut eb = eb.borrow_mut();
 
@@ -108,30 +173,24 @@ impl ProviderWrapper {
             eb.add_value(
                 "start time",
                 timestamp
-                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                        FieldFormat::Time,
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+                FieldFormat::Time,
                 0,
             );
 
+            let mut ebw = EventBuilderWrapper { eb: eb.deref_mut() };
             for fv in data {
-                add_field_value(&mut eb, fv);
+                ebw.add_field_value(fv);
             }
 
             let _ = eb.write(
-                &self.get_provider(),
-                Some(&tracelogging_dynamic::Guid::from_bytes_le(
-                    &activities.activity_id,
-                )),
-                activities
-                    .parent_activity_id
-                    .map(|id| tracelogging_dynamic::Guid::from_bytes_le(&id))
-                    .as_ref(),
+                &es,
+                Some(&activities.activity_id),
+                activities.parent_activity_id.as_ref(),
             );
         });
-
-        
     }
 
     pub(crate) fn span_stop<'a, R>(
@@ -148,6 +207,12 @@ impl ProviderWrapper {
     {
         let span_name = span.name();
 
+        let es = if let Some(es) = self.find_set(level.into(), keyword) {
+            es
+        } else {
+            self.register_set(level.into(), keyword)
+        };
+
         EBW.with(|eb| {
             let mut eb = eb.borrow_mut();
 
@@ -157,26 +222,22 @@ impl ProviderWrapper {
             eb.add_value(
                 "stop time",
                 timestamp
-                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                        FieldFormat::Time,
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+                FieldFormat::Time,
                 0,
             );
 
+            let mut ebw = EventBuilderWrapper { eb: eb.deref_mut() };
             for fv in data {
-                add_field_value(&mut eb, fv);
+                ebw.add_field_value(fv);
             }
 
             let _ = eb.write(
-                &self.get_provider(),
-                Some(&tracelogging_dynamic::Guid::from_bytes_le(
-                    &activities.activity_id,
-                )),
-                activities
-                    .parent_activity_id
-                    .map(|id| tracelogging_dynamic::Guid::from_bytes_le(&id))
-                    .as_ref(),
+                &es,
+                Some(&activities.activity_id),
+                activities.parent_activity_id.as_ref(),
             );
         });
     }
@@ -190,6 +251,12 @@ impl ProviderWrapper {
         keyword: u64,
         event: &tracing::Event<'_>,
     ) {
+        let es = if let Some(es) = self.find_set(level.into(), keyword) {
+            es
+        } else {
+            self.register_set(level.into(), keyword)
+        };
+
         EBW.with(|eb| {
             let mut eb = eb.borrow_mut();
 
@@ -199,24 +266,19 @@ impl ProviderWrapper {
             eb.add_value(
                 "time",
                 timestamp
-                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                        FieldFormat::Time,
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+                FieldFormat::Time,
                 0,
             );
 
-            event.record(&mut ValueVisitor { eb: &mut eb });
+            event.record(&mut EventBuilderWrapper { eb: eb.deref_mut() });
 
             let _ = eb.write(
-                &self.get_provider(),
-                Some(&tracelogging_dynamic::Guid::from_bytes_le(
-                    &activities.activity_id,
-                )),
-                activities
-                    .parent_activity_id
-                    .map(|id| tracelogging_dynamic::Guid::from_bytes_le(&id))
-                    .as_ref(),
+                &es,
+                Some(&activities.activity_id),
+                activities.parent_activity_id.as_ref(),
             );
         });
     }

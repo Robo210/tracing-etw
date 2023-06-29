@@ -1,16 +1,26 @@
+use std::collections::HashMap;
 use std::{pin::Pin, sync::Arc};
 
+use crossbeam_utils::sync::ShardedLock;
 use tracelogging::Guid;
 use tracing::{span, Subscriber};
 use tracing_subscriber::{registry::LookupSpan, Layer};
 
 use crate::activities::Activities; // filter::{FilterFn}
-use crate::providerwrapper::*;
+use crate::native::*;
+use crate::providerwrapper::{map_level, GuidWrapper, ProviderGroup};
 use crate::values::*;
+
+// Providers go in, but never come out.
+// On Windows this cannot be safely compiled into a dylib, since the providers will never be dropped.
+lazy_static! {
+    pub(crate) static ref PROVIDER_CACHE: ShardedLock<HashMap<String, Pin<Arc<ProviderWrapper>>>> =
+        ShardedLock::new(HashMap::new());
+}
 
 struct EtwLayerData {
     activities: Activities,
-    data: Vec<FieldAndValue>
+    data: Vec<FieldAndValue>,
 }
 
 pub struct EtwLayer {
@@ -121,7 +131,7 @@ impl EtwLayer {
             let (provider_name, provider_id, provider_group) = if !target_provider_name.is_empty() {
                 (
                     target_provider_name,
-                    Guid::from_name(target_provider_name),
+                    tracelogging::Guid::from_name(target_provider_name),
                     &ProviderGroup::Unset,
                 ) // TODO
             } else {
@@ -139,7 +149,11 @@ impl EtwLayer {
             } else {
                 guard.insert(
                     provider_name.to_string(),
-                    ProviderWrapper::new(provider_name, &provider_id, provider_group),
+                    ProviderWrapper::new(
+                        provider_name,
+                        &GuidWrapper::from(&provider_id).into(),
+                        provider_group,
+                    ),
                 );
 
                 if let Some(provider) = guard.get(provider_name) {
@@ -282,8 +296,9 @@ where
 
         // There can be at most 32 fields. We can sort and search a linear array of that size just fine compared to a map.
         let mut data = Vec::<FieldAndValue>::with_capacity(attrs.fields().len());
-        data.extend(attrs.fields().iter().map(|f| {
-            FieldAndValue { field_name: f.name(), value: ValueTypes::None }
+        data.extend(attrs.fields().iter().map(|f| FieldAndValue {
+            field_name: f.name(),
+            value: ValueTypes::None,
         }));
 
         data.sort_by(|a, b| a.field_name.cmp(b.field_name));
@@ -321,7 +336,7 @@ where
             timestamp,
             &data.activities,
             &data.data,
-            map_level(metadata.level()).into(),
+            map_level(metadata.level()),
             1,
             0,
         );
@@ -349,11 +364,15 @@ where
 
         let provider = self.get_or_create_provider_from_metadata(metadata);
 
-        provider
-            .as_ref()
-            .span_stop(&span, timestamp, &data.activities, &data.data, map_level(metadata.level()).into(),
+        provider.as_ref().span_stop(
+            &span,
+            timestamp,
+            &data.activities,
+            &data.data,
+            map_level(metadata.level()),
             1,
-            0);
+            0,
+        );
     }
 
     fn on_close(&self, _id: span::Id, _ctx: tracing_subscriber::layer::Context<'_, S>) {
@@ -384,6 +403,8 @@ where
         }
         let data = data.unwrap();
 
-        values.record( &mut ValueVisitor { data: &mut data.data });
+        values.record(&mut ValueVisitor {
+            data: &mut data.data,
+        });
     }
 }
