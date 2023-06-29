@@ -2,10 +2,9 @@
 extern crate lazy_static;
 
 mod activities;
-mod etw;
 mod layer;
+mod native;
 mod providerwrapper;
-mod user_events;
 mod values;
 
 pub use layer::*;

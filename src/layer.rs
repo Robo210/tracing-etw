@@ -154,7 +154,7 @@ impl EtwLayer {
             PROVIDER_CACHE.read().unwrap().get(provider_name).cloned()
         }
 
-        let provider_name = if target_provider_name.is_empty() {
+        let provider_name = if !target_provider_name.is_empty() {
             target_provider_name
         } else {
             self.provider_name.as_str()

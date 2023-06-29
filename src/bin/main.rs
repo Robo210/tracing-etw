@@ -18,7 +18,8 @@ fn main() {
     let _enter = span.enter();
     span.record("field1", 12345);
 
-    event!(Level::INFO, "inside my_function!");
+    let fieldB = "asdf";
+    event!(Level::INFO, fieldB, fieldA = 7, "inside {}!", "main");
 
     span.record("field2", "9876f64");
 
