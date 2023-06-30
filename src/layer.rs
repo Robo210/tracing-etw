@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::sync::OnceLock;
 use std::{pin::Pin, sync::Arc};
 
 use crossbeam_utils::sync::ShardedLock;
@@ -11,10 +11,7 @@ use crate::{map_level, native::*};
 
 // Providers go in, but never come out.
 // On Windows this cannot be safely compiled into a dylib, since the providers will never be dropped.
-lazy_static! {
-    pub(crate) static ref PROVIDER_CACHE: ShardedLock<HashMap<String, Pin<Arc<ProviderWrapper>>>> =
-        ShardedLock::new(HashMap::new());
-}
+static PROVIDER_CACHE: OnceLock<ShardedLock<rustc_hash::FxHashMap<String, Pin<Arc<ProviderWrapper>>>>> = OnceLock::new();
 
 #[repr(C)]
 struct EtwLayerData {
@@ -42,6 +39,8 @@ pub struct EtwLayer {
 
 impl EtwLayer {
     pub fn new(name: &str) -> Self {
+        let _ = PROVIDER_CACHE.set(ShardedLock::new(rustc_hash::FxHashMap::default()));
+
         EtwLayer {
             provider_name: name.to_owned(),
             provider_id: Guid::from_name(name),
@@ -136,7 +135,12 @@ impl EtwLayer {
             this: &EtwLayer,
             target_provider_name: &str,
         ) -> Pin<Arc<ProviderWrapper>> {
-            let mut guard = PROVIDER_CACHE.write().unwrap();
+            let mut guard;
+            if let Some(cache) = PROVIDER_CACHE.get() {
+                guard = cache.write().unwrap();
+            } else {
+                panic!();
+            }
 
             let (provider_name, provider_id, provider_group) = if !target_provider_name.is_empty() {
                 (
@@ -175,7 +179,11 @@ impl EtwLayer {
         }
 
         fn get_provider(provider_name: &str) -> Option<Pin<Arc<ProviderWrapper>>> {
-            PROVIDER_CACHE.read().unwrap().get(provider_name).cloned()
+            if let Some(cache) = PROVIDER_CACHE.get() {
+                cache.read().unwrap().get(provider_name).cloned()
+            } else {
+                panic!();
+            }
         }
 
         let provider_name = if !target_provider_name.is_empty() {
