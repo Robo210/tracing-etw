@@ -158,10 +158,15 @@ impl ProviderWrapper {
                 });
             }
 
+            let act = tracelogging_dynamic::Guid::from_bytes_le(activity_id);
             let related = tracelogging_dynamic::Guid::from_bytes_le(related_activity_id);
             let _ = eb.write(
                 &self.get_provider(),
-                Some(&tracelogging_dynamic::Guid::from_bytes_le(&activity_id)),
+                if activity_id[0] != 0 {
+                    Some(&act)
+                } else {
+                    None
+                },
                 if related_activity_id[0] != 0 {
                     Some(&related)
                 } else {
@@ -209,10 +214,15 @@ impl ProviderWrapper {
                 });
             }
 
+            let act = tracelogging_dynamic::Guid::from_bytes_le(activity_id);
             let related = tracelogging_dynamic::Guid::from_bytes_le(related_activity_id);
             let _ = eb.write(
                 &self.get_provider(),
-                Some(&tracelogging_dynamic::Guid::from_bytes_le(&activity_id)),
+                if activity_id[0] != 0 {
+                    Some(&act)
+                } else {
+                    None
+                },
                 if related_activity_id[0] != 0 {
                     Some(&related)
                 } else {
@@ -247,10 +257,15 @@ impl ProviderWrapper {
 
             event.record(&mut EventBuilderWrapper { eb: eb.deref_mut() });
 
+            let act = tracelogging_dynamic::Guid::from_bytes_le(activity_id);
             let related = tracelogging_dynamic::Guid::from_bytes_le(related_activity_id);
             let _ = eb.write(
                 &self.get_provider(),
-                Some(&tracelogging_dynamic::Guid::from_bytes_le(&activity_id)),
+                if activity_id[0] != 0 {
+                    Some(&act)
+                } else {
+                    None
+                },
                 if related_activity_id[0] != 0 {
                     Some(&related)
                 } else {

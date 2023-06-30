@@ -189,7 +189,11 @@ impl ProviderWrapper {
 
             let _ = eb.write(
                 &es,
-                Some(activity_id),
+                if activity_id[0] != 0 {
+                    Some(activity_id)
+                } else {
+                    None
+                },
                 if related_activity_id[0] != 0 {
                     Some(&related_activity_id)
                 } else {
@@ -238,7 +242,7 @@ impl ProviderWrapper {
             );
 
             let mut ebw = EventBuilderWrapper { eb: eb.deref_mut() };
-            
+
             for (f, v) in fields.iter().zip(values.iter()) {
                 ebw.add_field_value(&FieldAndValue {
                     field_name: f,
@@ -248,7 +252,11 @@ impl ProviderWrapper {
 
             let _ = eb.write(
                 &es,
-                Some(activity_id),
+                if activity_id[0] != 0 {
+                    Some(activity_id)
+                } else {
+                    None
+                },
                 if related_activity_id[0] != 0 {
                     Some(&related_activity_id)
                 } else {
@@ -294,7 +302,11 @@ impl ProviderWrapper {
 
             let _ = eb.write(
                 &es,
-                Some(activity_id),
+                if activity_id[0] != 0 {
+                    Some(activity_id)
+                } else {
+                    None
+                },
                 if related_activity_id[0] != 0 {
                     Some(&related_activity_id)
                 } else {
