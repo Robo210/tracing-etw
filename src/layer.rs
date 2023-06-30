@@ -1,17 +1,12 @@
 use std::sync::OnceLock;
 use std::{pin::Pin, sync::Arc};
 
-use crossbeam_utils::sync::ShardedLock;
 use tracelogging::Guid;
 use tracing::{span, Subscriber};
 use tracing_subscriber::{registry::LookupSpan, Layer};
 
 use crate::values::*;
 use crate::{map_level, native::*};
-
-// Providers go in, but never come out.
-// On Windows this cannot be safely compiled into a dylib, since the providers will never be dropped.
-static PROVIDER_CACHE: OnceLock<ShardedLock<rustc_hash::FxHashMap<String, Pin<Arc<ProviderWrapper>>>>> = OnceLock::new();
 
 #[repr(C)]
 struct EtwLayerData {
@@ -32,27 +27,27 @@ impl Drop for EtwLayerData {
 
 pub struct EtwLayer {
     pub(crate) provider_name: String,
-    pub(crate) provider_id: Guid,
+    pub(crate) provider_id: tracelogging::Guid,
     pub(crate) provider_group: ProviderGroup,
     pub(crate) emit_common_schema_events: bool,
+    provider: OnceLock<Pin<Arc<ProviderWrapper>>>,
 }
 
 impl EtwLayer {
     pub fn new(name: &str) -> Self {
-        let _ = PROVIDER_CACHE.set(ShardedLock::new(rustc_hash::FxHashMap::default()));
-
         EtwLayer {
             provider_name: name.to_owned(),
             provider_id: Guid::from_name(name),
             provider_group: ProviderGroup::Unset,
             emit_common_schema_events: false,
+            provider: OnceLock::new(),
         }
     }
 
     /// For advanced scenarios.
     /// Assign a provider ID to the ETW provider rather than use
     /// one generated from the provider name.
-    pub fn with_provider_id(mut self, guid: Guid) -> Self {
+    pub fn with_provider_id(mut self, guid: tracelogging::Guid) -> Self {
         self.provider_id = guid;
         self
     }
@@ -60,7 +55,7 @@ impl EtwLayer {
     /// Get the current provider ID that will be used for the ETW provider.
     /// This is a convenience function to help with tools that do not implement
     /// the standard provider name to ID algorithm.
-    pub fn get_provider_id(&self) -> Guid {
+    pub fn get_provider_id(&self) -> tracelogging::Guid {
         self.provider_id
     }
 
@@ -92,7 +87,7 @@ impl EtwLayer {
     /// For advanced scenarios.
     /// Set the ETW provider group to join this provider to.
     #[cfg(any(target_os = "windows", doc))]
-    pub fn with_provider_group(mut self, group_id: Guid) -> Self {
+    pub fn with_provider_group(mut self, group_id: tracelogging::Guid) -> Self {
         self.provider_group = ProviderGroup::Windows(group_id);
         self
     }
@@ -129,92 +124,6 @@ impl EtwLayer {
             //panic!("Linux provider names must be ASCII alphanumeric");
         }
     }
-
-    fn get_or_create_provider(&self, target_provider_name: &str) -> Pin<Arc<ProviderWrapper>> {
-        fn create_provider(
-            this: &EtwLayer,
-            target_provider_name: &str,
-        ) -> Pin<Arc<ProviderWrapper>> {
-            let mut guard;
-            if let Some(cache) = PROVIDER_CACHE.get() {
-                guard = cache.write().unwrap();
-            } else {
-                panic!();
-            }
-
-            let (provider_name, provider_id, provider_group) = if !target_provider_name.is_empty() {
-                (
-                    target_provider_name,
-                    tracelogging::Guid::from_name(target_provider_name),
-                    &ProviderGroup::Unset,
-                ) // TODO
-            } else {
-                // Since the target defaults to module_path!(), we never actually get here unless the developer uses target: ""
-                (
-                    this.provider_name.as_str(),
-                    this.provider_id,
-                    &this.provider_group,
-                )
-            };
-
-            // Check again to see if it has already been created before we got the write lock
-            if let Some(provider) = guard.get(provider_name) {
-                provider.clone()
-            } else {
-                guard.insert(
-                    provider_name.to_string(),
-                    ProviderWrapper::new(
-                        provider_name,
-                        &GuidWrapper::from(&provider_id).into(),
-                        provider_group,
-                    ),
-                );
-
-                if let Some(provider) = guard.get(provider_name) {
-                    provider.clone()
-                } else {
-                    panic!()
-                }
-            }
-        }
-
-        fn get_provider(provider_name: &str) -> Option<Pin<Arc<ProviderWrapper>>> {
-            if let Some(cache) = PROVIDER_CACHE.get() {
-                cache.read().unwrap().get(provider_name).cloned()
-            } else {
-                panic!();
-            }
-        }
-
-        let provider_name = if !target_provider_name.is_empty() {
-            target_provider_name
-        } else {
-            self.provider_name.as_str()
-        };
-
-        if let Some(provider) = get_provider(provider_name) {
-            provider
-        } else {
-            create_provider(&self, target_provider_name)
-        }
-    }
-
-    fn get_or_create_provider_from_metadata(
-        &self,
-        metadata: &tracing::Metadata<'_>,
-    ) -> Pin<Arc<ProviderWrapper>> {
-        let target = if let Some(mod_path) = metadata.module_path() {
-            if metadata.target() == mod_path {
-                self.provider_name.as_str()
-            } else {
-                metadata.target()
-            }
-        } else {
-            self.provider_name.as_str()
-        };
-
-        self.get_or_create_provider(target)
-    }
 }
 
 impl<S: Subscriber> Layer<S> for EtwLayer
@@ -224,18 +133,34 @@ where
     fn on_register_dispatch(&self, _collector: &tracing::Dispatch) {
         // Late init when the layer is installed as a subscriber
         self.validate_config();
+
+        self.provider.get_or_init(|| {
+            ProviderWrapper::new(
+                &self.provider_name,
+                &GuidWrapper::from(&self.provider_id).into(),
+                &self.provider_group)
+        });
     }
 
     fn on_layer(&mut self, _subscriber: &mut S) {
         // Late init when the layer is attached to a subscriber
         self.validate_config();
+
+        self.provider.get_or_init(|| {
+            ProviderWrapper::new(
+                &self.provider_name,
+                &GuidWrapper::from(&self.provider_id).into(),
+                &self.provider_group)
+        });
     }
 
     fn register_callsite(
         &self,
-        metadata: &'static tracing::Metadata<'static>,
+        _metadata: &'static tracing::Metadata<'static>,
     ) -> tracing::subscriber::Interest {
-        let _ = self.get_or_create_provider_from_metadata(metadata);
+        if let None = self.provider.get() {
+            panic!();
+        }
 
         // Returning "sometimes" means the enabled function will be called every time an event or span is created from the callsite.
         // This will let us perform a global "is enabled" check each time.
@@ -251,7 +176,7 @@ where
         metadata: &tracing::Metadata<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) -> bool {
-        let provider = self.get_or_create_provider_from_metadata(metadata);
+        let provider = self.provider.get().unwrap();
         provider.enabled(map_level(metadata.level()), 0)
     }
 
@@ -293,7 +218,7 @@ where
             0
         };
 
-        let provider = self.get_or_create_provider_from_metadata(event.metadata());
+        let provider = self.provider.get().unwrap();
         provider.as_ref().write_record(
             timestamp,
             &activity_id,
@@ -324,8 +249,6 @@ where
         } else {
             0
         };
-
-        let _ = self.get_or_create_provider_from_metadata(metadata);
 
         // We want to back the data that needs to be stored on the span as tightly as possible,
         // in order to accommodate as many active spans as possible.
@@ -415,7 +338,7 @@ where
         }
         let data = data.unwrap();
 
-        let provider = self.get_or_create_provider_from_metadata(metadata);
+        let provider = self.provider.get().unwrap();
 
         provider.as_ref().span_start(
             &span,
@@ -450,7 +373,7 @@ where
         }
         let data = data.unwrap();
 
-        let provider = self.get_or_create_provider_from_metadata(metadata);
+        let provider = self.provider.get().unwrap();
 
         provider.as_ref().span_stop(
             &span,

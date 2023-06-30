@@ -18,6 +18,4 @@ tracelogging = ">= 1.1.0"
 tracelogging_dynamic = ">= 1.1.0"
 eventheader = "0.2"
 eventheader_dynamic = "0.2"
-crossbeam-utils = "0.8"
 chrono = {version="0.4", default-features = false, features=["std"]}
-rustc-hash = "1.1"
