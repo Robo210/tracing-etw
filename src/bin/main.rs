@@ -20,7 +20,14 @@ fn main() {
 
     #[allow(non_snake_case)]
     let fieldB = "asdf";
-    event!(Level::INFO, fieldC = b'x', fieldB, fieldA = 7, "inside {}!", "main");
+    event!(
+        Level::INFO,
+        fieldC = b'x',
+        fieldB,
+        fieldA = 7,
+        "inside {}!",
+        "main"
+    );
 
     span.record("field2", "9876f64");
 

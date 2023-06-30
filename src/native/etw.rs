@@ -1,9 +1,6 @@
-use crate::{
-    activities::Activities,
-    values::*,
-};
+use crate::{values::*};
 use chrono::{Datelike, Timelike};
-use std::{cell::RefCell, ops::DerefMut, pin::Pin, time::SystemTime, sync::Arc};
+use std::{cell::RefCell, ops::DerefMut, pin::Pin, sync::Arc, time::SystemTime};
 use tracelogging::*;
 use tracelogging_dynamic::EventBuilder;
 use tracing_subscriber::registry::{LookupSpan, SpanRef};
@@ -127,7 +124,8 @@ impl ProviderWrapper {
         self: Pin<&Self>,
         span: &'b SpanRef<'a, R>,
         timestamp: SystemTime,
-        activities: &Activities,
+        activity_id: &[u8; 16],
+        related_activity_id: &[u8; 16],
         fields: &'b [&'static str],
         values: &'b [ValueTypes],
         level: u8,
@@ -152,20 +150,23 @@ impl ProviderWrapper {
             );
 
             let mut ebw = EventBuilderWrapper { eb: eb.deref_mut() };
-            
+
             for (f, v) in fields.iter().zip(values.iter()) {
-                ebw.add_field_value(&FieldAndValue { field_name: f, value: v });
+                ebw.add_field_value(&FieldAndValue {
+                    field_name: f,
+                    value: v,
+                });
             }
 
+            let related = tracelogging_dynamic::Guid::from_bytes_le(related_activity_id);
             let _ = eb.write(
                 &self.get_provider(),
-                Some(&tracelogging_dynamic::Guid::from_bytes_le(
-                    &activities.activity_id,
-                )),
-                activities
-                    .parent_activity_id
-                    .map(|id| tracelogging_dynamic::Guid::from_bytes_le(&id))
-                    .as_ref(),
+                Some(&tracelogging_dynamic::Guid::from_bytes_le(&activity_id)),
+                if related_activity_id[0] != 0 {
+                    Some(&related)
+                } else {
+                    None
+                },
             );
         });
     }
@@ -174,7 +175,8 @@ impl ProviderWrapper {
         self: Pin<&Self>,
         span: &'b SpanRef<'a, R>,
         timestamp: SystemTime,
-        activities: &Activities,
+        activity_id: &[u8; 16],
+        related_activity_id: &[u8; 16],
         fields: &'b [&'static str],
         values: &'b [ValueTypes],
         level: u8,
@@ -201,18 +203,21 @@ impl ProviderWrapper {
             let mut ebw = EventBuilderWrapper { eb: eb.deref_mut() };
 
             for (f, v) in fields.iter().zip(values.iter()) {
-                ebw.add_field_value(&FieldAndValue { field_name: f, value: v });
+                ebw.add_field_value(&FieldAndValue {
+                    field_name: f,
+                    value: v,
+                });
             }
 
+            let related = tracelogging_dynamic::Guid::from_bytes_le(related_activity_id);
             let _ = eb.write(
                 &self.get_provider(),
-                Some(&tracelogging_dynamic::Guid::from_bytes_le(
-                    &activities.activity_id,
-                )),
-                activities
-                    .parent_activity_id
-                    .map(|id| tracelogging_dynamic::Guid::from_bytes_le(&id))
-                    .as_ref(),
+                Some(&tracelogging_dynamic::Guid::from_bytes_le(&activity_id)),
+                if related_activity_id[0] != 0 {
+                    Some(&related)
+                } else {
+                    None
+                },
             );
         });
     }
@@ -220,7 +225,8 @@ impl ProviderWrapper {
     pub(crate) fn write_record(
         self: Pin<&Self>,
         timestamp: SystemTime,
-        activities: &Activities,
+        activity_id: &[u8; 16],
+        related_activity_id: &[u8; 16],
         event_name: &str,
         level: u8,
         keyword: u64,
@@ -241,15 +247,15 @@ impl ProviderWrapper {
 
             event.record(&mut EventBuilderWrapper { eb: eb.deref_mut() });
 
+            let related = tracelogging_dynamic::Guid::from_bytes_le(related_activity_id);
             let _ = eb.write(
                 &self.get_provider(),
-                Some(&tracelogging_dynamic::Guid::from_bytes_le(
-                    &activities.activity_id,
-                )),
-                activities
-                    .parent_activity_id
-                    .map(|id| tracelogging_dynamic::Guid::from_bytes_le(&id))
-                    .as_ref(),
+                Some(&tracelogging_dynamic::Guid::from_bytes_le(&activity_id)),
+                if related_activity_id[0] != 0 {
+                    Some(&related)
+                } else {
+                    None
+                },
             );
         });
     }

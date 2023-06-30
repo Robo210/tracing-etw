@@ -1,18 +1,17 @@
-use std::{pin::Pin, time::SystemTime, sync::Arc};
+use std::{pin::Pin, sync::Arc, time::SystemTime};
 
 use tracing_subscriber::registry::{LookupSpan, SpanRef};
 
-use crate::{activities::Activities, values::*};
+use crate::{values::*};
 
 use super::ProviderGroup;
 
 pub(crate) struct EventBuilderWrapper<'a> {
-    _p: core::marker::PhantomData<&'a u8>
+    _p: core::marker::PhantomData<&'a u8>,
 }
 
 impl AddFieldAndValue for EventBuilderWrapper<'_> {
-    fn add_field_value(&mut self, _fv: &FieldAndValue) {
-    }
+    fn add_field_value(&mut self, _fv: &FieldAndValue) {}
 }
 
 pub(crate) struct ProviderWrapper;
@@ -31,12 +30,14 @@ impl ProviderWrapper {
         false
     }
 
-    pub(crate) fn span_start<'a, R>(
+    pub(crate) fn span_start<'a, 'b, R>(
         self: Pin<&Self>,
-        _span: &SpanRef<'a, R>,
+        _span: &'b SpanRef<'a, R>,
         _timestamp: SystemTime,
-        _activities: &Activities,
-        _data: &[crate::values::FieldAndValue],
+        _activity_id: &[u8; 16],
+        _related_activity_id: &[u8; 16],
+        _fields: &'b [&'static str],
+        _values: &'b [ValueTypes],
         _level: u8,
         _keyword: u64,
         _event_tag: u32,
@@ -45,12 +46,14 @@ impl ProviderWrapper {
     {
     }
 
-    pub(crate) fn span_stop<'a, R>(
+    pub(crate) fn span_stop<'a, 'b, R>(
         self: Pin<&Self>,
-        _span: &SpanRef<'a, R>,
+        _span: &'b SpanRef<'a, R>,
         _timestamp: SystemTime,
-        _activities: &Activities,
-        _data: &[crate::values::FieldAndValue],
+        _activity_id: &[u8; 16],
+        _related_activity_id: &[u8; 16],
+        _fields: &'b [&'static str],
+        _values: &'b [ValueTypes],
         _level: u8,
         _keyword: u64,
         _event_tag: u32,
@@ -62,7 +65,8 @@ impl ProviderWrapper {
     pub(crate) fn write_record(
         self: Pin<&Self>,
         _timestamp: SystemTime,
-        _activities: &Activities,
+        _activity_id: &[u8; 16],
+        _related_activity_id: &[u8; 16],
         _event_name: &str,
         _level: u8,
         _keyword: u64,

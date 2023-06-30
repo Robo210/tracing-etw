@@ -3,7 +3,7 @@ use std::fmt::Write;
 
 use tracing::field;
 
-use crate::{native::EventBuilderWrapper};
+use crate::native::EventBuilderWrapper;
 
 #[allow(non_camel_case_types)]
 pub(crate) enum ValueTypes {
@@ -79,19 +79,23 @@ impl From<char> for ValueTypes {
 }
 
 pub(crate) struct FieldAndValue<'a> {
+    #[allow(dead_code)]
     pub(crate) field_name: &'static str,
+    #[allow(dead_code)]
     pub(crate) value: &'a ValueTypes,
 }
 
 pub(crate) struct ValueVisitor<'a> {
     pub(crate) fields: &'a [&'static str],
-    pub(crate) values: &'a mut[ValueTypes],
+    pub(crate) values: &'a mut [ValueTypes],
     pub(crate) indexes: &'a mut [u8],
 }
 
 impl<'a> ValueVisitor<'a> {
     fn update_value(&mut self, field_name: &'static str, value: ValueTypes) {
-        let res = self.indexes.binary_search_by_key(&field_name, |idx| self.fields[*idx as usize]);
+        let res = self
+            .indexes
+            .binary_search_by_key(&field_name, |idx| self.fields[*idx as usize]);
         if let Err(_) = res {
             return; // We don't support (and don't need to support) adding new fields that weren't in the original metadata
         } else {

@@ -2,14 +2,12 @@ use std::collections::HashMap;
 use std::{pin::Pin, sync::Arc};
 
 use crossbeam_utils::sync::ShardedLock;
-use smallvec::SmallVec;
 use tracelogging::Guid;
 use tracing::{span, Subscriber};
 use tracing_subscriber::{registry::LookupSpan, Layer};
 
-use crate::activities::{Activities, self}; // filter::{FilterFn}
-use crate::{native::*, map_level};
 use crate::values::*;
+use crate::{map_level, native::*};
 
 // Providers go in, but never come out.
 // On Windows this cannot be safely compiled into a dylib, since the providers will never be dropped.
@@ -24,20 +22,20 @@ lazy_static! {
 //     indexes: arrayvec::ArrayVec::<u8, 32>, // Sorted indexes for the data array
 // }
 
+#[repr(C)]
 struct EtwLayerData {
     _p: usize,
-    activities: &'static Activities,
-    layout: &'static std::alloc::Layout,
     fields: &'static [&'static str],
     values: &'static mut [ValueTypes],
     indexes: &'static mut [u8],
+    activity_id: [u8; 16],
+    related_activity_id: [u8; 16],
+    layout: &'static std::alloc::Layout,
 }
 
 impl Drop for EtwLayerData {
     fn drop(&mut self) {
-        unsafe {
-            std::alloc::dealloc(self._p as *mut u8, *self.layout)
-        }
+        unsafe { std::alloc::dealloc(self._p as *mut u8, *self.layout) }
     }
 }
 
@@ -275,12 +273,24 @@ where
             .event_span(event)
             .map_or(0, |evt| evt.parent().map_or(0, |p| p.id().into_u64()));
 
-        let activities = Activities::generate(current_span, parent_span);
+        let mut activity_id: [u8; 16] = [0; 16];
+        let (_, half) = activity_id.split_at_mut(8);
+        half.copy_from_slice(&current_span.to_le_bytes());
+
+        let mut related_activity_id: [u8; 16] = [0; 16];
+        related_activity_id[0] = if parent_span != 0 {
+            let (_, half) = related_activity_id.split_at_mut(8);
+            half.copy_from_slice(&parent_span.to_le_bytes());
+            1
+        } else {
+            0
+        };
 
         let provider = self.get_or_create_provider_from_metadata(event.metadata());
         provider.as_ref().write_record(
             timestamp,
-            &activities,
+            &activity_id,
+            &related_activity_id,
             event.metadata().name(),
             map_level(event.metadata().level()).into(),
             1,
@@ -308,32 +318,29 @@ where
             0
         };
 
-        let activities = Activities::generate(id.into_u64(), parent_span_id);
-
         let _ = self.get_or_create_provider_from_metadata(metadata);
 
         // We want to back the data that needs to be stored on the span as tightly as possible,
         // in order to accommodate as many active spans as possible.
         let data = unsafe {
             let n = attrs.fields().len();
-            let activities_layout = std::alloc::Layout::for_value(&activities);
             let layout_layout = std::alloc::Layout::new::<std::alloc::Layout>();
             let fields_layout = std::alloc::Layout::array::<&str>(n).unwrap();
             let values_layout = std::alloc::Layout::array::<ValueTypes>(n).unwrap();
             let indexes_layout = std::alloc::Layout::array::<u8>(n).unwrap();
 
-            let (layout, layout_offset) = activities_layout.extend(layout_layout).unwrap();
-            let (layout, fields_offset) = layout.extend(fields_layout).unwrap();
+            let (layout, fields_offset) = layout_layout.extend(fields_layout).unwrap();
             let (layout, values_offset) = layout.extend(values_layout).unwrap();
             let (layout, indexes_offset) = layout.extend(indexes_layout).unwrap();
 
             let block = std::alloc::alloc_zeroed(layout);
-            let fields: &mut [&str] = std::slice::from_raw_parts_mut(block.add(fields_offset) as *mut &str, n);
-            let values: &mut [ValueTypes] = std::slice::from_raw_parts_mut(block.add(values_offset) as *mut ValueTypes, n);
+            let fields: &mut [&str] =
+                std::slice::from_raw_parts_mut(block.add(fields_offset) as *mut &str, n);
+            let values: &mut [ValueTypes] =
+                std::slice::from_raw_parts_mut(block.add(values_offset) as *mut ValueTypes, n);
             let indexes: &mut [u8] = std::slice::from_raw_parts_mut(block.add(indexes_offset), n);
 
-            *(block as *mut Activities) = activities;
-            *(block.add(layout_offset) as *mut std::alloc::Layout) = layout;
+            *(block as *mut std::alloc::Layout) = layout;
 
             let mut i = 0;
             for field in attrs.fields().iter() {
@@ -345,17 +352,36 @@ where
 
             indexes.sort_by_key(|idx| fields[*idx as usize]);
 
-            EtwLayerData {
+            let mut data = EtwLayerData {
                 _p: block as usize,
-                activities: &*(block as *const Activities) as &'static Activities,
-                layout: &*(block.add(layout_offset) as *const std::alloc::Layout) as &'static std::alloc::Layout,
                 fields,
                 values,
                 indexes,
-            }
-        };    
+                layout: &*(block as *const std::alloc::Layout) as &'static std::alloc::Layout,
+                activity_id: [0; 16],
+                related_activity_id: [0; 16],
+            };
 
-        attrs.values().record(&mut ValueVisitor { fields: data.fields, values: data.values, indexes: data.indexes });
+            let (_, half) = data.activity_id.split_at_mut(8);
+            half.copy_from_slice(&id.into_u64().to_le_bytes());
+
+            data.activity_id[0] = 1;
+            data.activity_id[0] = if parent_span_id != 0 {
+                let (_, half) = data.related_activity_id.split_at_mut(8);
+                half.copy_from_slice(&parent_span_id.to_le_bytes());
+                1
+            } else {
+                0
+            };
+
+            data
+        };
+
+        attrs.values().record(&mut ValueVisitor {
+            fields: data.fields,
+            values: data.values,
+            indexes: data.indexes,
+        });
 
         // This will unfortunately box data. It would be ideal if we could avoid this second heap allocation,
         // but at least it's small.
@@ -387,7 +413,8 @@ where
         provider.as_ref().span_start(
             &span,
             timestamp,
-            data.activities,
+            &data.activity_id,
+            &data.related_activity_id,
             data.fields,
             data.values,
             map_level(metadata.level()),
@@ -421,7 +448,8 @@ where
         provider.as_ref().span_stop(
             &span,
             timestamp,
-            data.activities,
+            &data.activity_id,
+            &data.related_activity_id,
             data.fields,
             data.values,
             map_level(metadata.level()),

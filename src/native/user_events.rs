@@ -1,8 +1,4 @@
-use crate::{
-    activities::Activities,
-    map_level,
-    values::*,
-};
+use crate::{map_level, values::*};
 use eventheader::*;
 use eventheader_dynamic::EventBuilder;
 use std::{cell::RefCell, ops::DerefMut, pin::Pin, sync::Arc, time::SystemTime};
@@ -21,16 +17,16 @@ impl AddFieldAndValue for EventBuilderWrapper<'_> {
         match fv.value {
             ValueTypes::None => (),
             ValueTypes::v_u64(u) => {
-                self.eb.add_value(fv.field_name, u, FieldFormat::Default, 0);
+                self.eb.add_value(fv.field_name, *u, FieldFormat::Default, 0);
             }
             ValueTypes::v_i64(i) => {
                 self.eb
-                    .add_value(fv.field_name, i, FieldFormat::SignedInt, 0);
+                    .add_value(fv.field_name, *i, FieldFormat::SignedInt, 0);
             }
             ValueTypes::v_u128(u) => unsafe {
                 self.eb.add_value_sequence(
                     fv.field_name,
-                    core::slice::from_raw_parts(&u.to_le_bytes() as *const u8 as *const u64, 2),
+                    core::slice::from_raw_parts(&(u.to_le_bytes()) as *const u8 as *const u64, 2),
                     FieldFormat::HexInt,
                     0,
                 );
@@ -38,17 +34,17 @@ impl AddFieldAndValue for EventBuilderWrapper<'_> {
             ValueTypes::v_i128(i) => unsafe {
                 self.eb.add_value_sequence(
                     fv.field_name,
-                    core::slice::from_raw_parts(&i.to_le_bytes() as *const u8 as *const u64, 2),
+                    core::slice::from_raw_parts(&(i.to_le_bytes()) as *const u8 as *const u64, 2),
                     FieldFormat::HexInt,
                     0,
                 );
             },
             ValueTypes::v_f64(f) => {
-                self.eb.add_value(fv.field_name, f, FieldFormat::Float, 0);
+                self.eb.add_value(fv.field_name, *f, FieldFormat::Float, 0);
             }
             ValueTypes::v_bool(b) => {
                 self.eb
-                    .add_value(fv.field_name, b as i32, FieldFormat::Boolean, 0);
+                    .add_value(fv.field_name, *b as i32, FieldFormat::Boolean, 0);
             }
             ValueTypes::v_str(ref s) => {
                 self.eb
@@ -56,7 +52,7 @@ impl AddFieldAndValue for EventBuilderWrapper<'_> {
             }
             ValueTypes::v_char(c) => {
                 self.eb
-                    .add_value(fv.field_name, c as u8, FieldFormat::String8, 0);
+                    .add_value(fv.field_name, *c as u8, FieldFormat::String8, 0);
             }
         }
     }
@@ -86,9 +82,7 @@ impl ProviderWrapper {
             .register_set(level, keyword)
     }
 
-    fn get_provider(
-        self: Pin<&Self>,
-    ) -> Pin<&std::sync::RwLock<eventheader_dynamic::Provider>> {
+    fn get_provider(self: Pin<&Self>) -> Pin<&std::sync::RwLock<eventheader_dynamic::Provider>> {
         unsafe { self.map_unchecked(|s| &s.provider) }
     }
 
@@ -146,12 +140,14 @@ impl ProviderWrapper {
         }
     }
 
-    pub(crate) fn span_start<'a, R>(
+    pub(crate) fn span_start<'a, 'b, R>(
         self: Pin<&Self>,
-        span: &SpanRef<'a, R>,
+        span: &'b SpanRef<'a, R>,
         timestamp: SystemTime,
-        activities: &Activities,
-        data: &[crate::values::FieldAndValue],
+        activity_id: &[u8; 16],
+        related_activity_id: &[u8; 16],
+        fields: &'b [&'static str],
+        values: &'b [ValueTypes],
         level: u8,
         keyword: u64,
         event_tag: u32,
@@ -183,24 +179,34 @@ impl ProviderWrapper {
             );
 
             let mut ebw = EventBuilderWrapper { eb: eb.deref_mut() };
-            for fv in data {
-                ebw.add_field_value(fv);
+
+            for (f, v) in fields.iter().zip(values.iter()) {
+                ebw.add_field_value(&FieldAndValue {
+                    field_name: f,
+                    value: v,
+                });
             }
 
             let _ = eb.write(
                 &es,
-                Some(&activities.activity_id),
-                activities.parent_activity_id.as_ref(),
+                Some(activity_id),
+                if related_activity_id[0] != 0 {
+                    Some(&related_activity_id)
+                } else {
+                    None
+                }
             );
         });
     }
 
-    pub(crate) fn span_stop<'a, R>(
+    pub(crate) fn span_stop<'a, 'b, R>(
         self: Pin<&Self>,
-        span: &SpanRef<'a, R>,
+        span: &'b SpanRef<'a, R>,
         timestamp: SystemTime,
-        activities: &Activities,
-        data: &[crate::values::FieldAndValue],
+        activity_id: &[u8; 16],
+        related_activity_id: &[u8; 16],
+        fields: &'b [&'static str],
+        values: &'b [ValueTypes],
         level: u8,
         keyword: u64,
         event_tag: u32,
@@ -232,14 +238,22 @@ impl ProviderWrapper {
             );
 
             let mut ebw = EventBuilderWrapper { eb: eb.deref_mut() };
-            for fv in data {
-                ebw.add_field_value(fv);
+            
+            for (f, v) in fields.iter().zip(values.iter()) {
+                ebw.add_field_value(&FieldAndValue {
+                    field_name: f,
+                    value: v,
+                });
             }
 
             let _ = eb.write(
                 &es,
-                Some(&activities.activity_id),
-                activities.parent_activity_id.as_ref(),
+                Some(activity_id),
+                if related_activity_id[0] != 0 {
+                    Some(&related_activity_id)
+                } else {
+                    None
+                }
             );
         });
     }
@@ -247,7 +261,8 @@ impl ProviderWrapper {
     pub(crate) fn write_record(
         self: Pin<&Self>,
         timestamp: SystemTime,
-        activities: &Activities,
+        activity_id: &[u8; 16],
+        related_activity_id: &[u8; 16],
         event_name: &str,
         level: u8,
         keyword: u64,
@@ -279,8 +294,12 @@ impl ProviderWrapper {
 
             let _ = eb.write(
                 &es,
-                Some(&activities.activity_id),
-                activities.parent_activity_id.as_ref(),
+                Some(activity_id),
+                if related_activity_id[0] != 0 {
+                    Some(&related_activity_id)
+                } else {
+                    None
+                }
             );
         });
     }
