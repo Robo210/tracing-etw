@@ -16,21 +16,15 @@ lazy_static! {
         ShardedLock::new(HashMap::new());
 }
 
-// struct EtwLayerData {
-//     activities: Activities,
-//     data: SmallVec::<[FieldAndValue; 5]>, // Original metadata order
-//     indexes: arrayvec::ArrayVec::<u8, 32>, // Sorted indexes for the data array
-// }
-
 #[repr(C)]
 struct EtwLayerData {
-    _p: usize,
+    _p: usize, // Raw pointer that holds fields/values/indexes/layout
     fields: &'static [&'static str],
     values: &'static mut [ValueTypes],
     indexes: &'static mut [u8],
     activity_id: [u8; 16], // // if set, byte 0 is 1 and 64-bit span ID in the lower 8 bytes
     related_activity_id: [u8; 16], // if set, byte 0 is 1 and 64-bit span ID in the lower 8 bytes
-    layout: &'static std::alloc::Layout,
+    layout: &'static std::alloc::Layout, // Necessary so we can dealloc _p
 }
 
 impl Drop for EtwLayerData {
@@ -328,7 +322,7 @@ where
         // We want to back the data that needs to be stored on the span as tightly as possible,
         // in order to accommodate as many active spans as possible.
         let data = unsafe {
-            let n = attrs.fields().len();
+            let n = metadata.fields().len();
             let layout_layout = std::alloc::Layout::new::<std::alloc::Layout>();
             let fields_layout = std::alloc::Layout::array::<&str>(n).unwrap();
             let values_layout = std::alloc::Layout::array::<ValueTypes>(n).unwrap();
@@ -348,7 +342,7 @@ where
             *(block as *mut std::alloc::Layout) = layout;
 
             let mut i = 0;
-            for field in attrs.fields().iter() {
+            for field in metadata.fields().iter() {
                 fields[i] = field.name();
                 values[i] = ValueTypes::None;
                 indexes[i] = i as u8;
