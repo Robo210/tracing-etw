@@ -78,23 +78,24 @@ impl From<char> for ValueTypes {
     }
 }
 
-pub(crate) struct FieldAndValue {
+pub(crate) struct FieldAndValue<'a> {
     pub(crate) field_name: &'static str,
-    pub(crate) value: ValueTypes,
+    pub(crate) value: &'a ValueTypes,
 }
 
 pub(crate) struct ValueVisitor<'a> {
-    pub(crate) data: &'a mut smallvec::SmallVec::<[FieldAndValue; 5]>,
-    pub(crate) indexes: &'a arrayvec::ArrayVec::<u8, 32>,
+    pub(crate) fields: &'a [&'static str],
+    pub(crate) values: &'a mut[ValueTypes],
+    pub(crate) indexes: &'a mut [u8],
 }
 
 impl<'a> ValueVisitor<'a> {
     fn update_value(&mut self, field_name: &'static str, value: ValueTypes) {
-        let res = self.indexes.binary_search_by_key(&field_name, |idx| self.data[*idx as usize].field_name);
+        let res = self.indexes.binary_search_by_key(&field_name, |idx| self.fields[*idx as usize]);
         if let Err(_) = res {
             return; // We don't support (and don't need to support) adding new fields that weren't in the original metadata
         } else {
-            self.data[self.indexes[res.unwrap()] as usize].value = value;
+            self.values[self.indexes[res.unwrap()] as usize] = value;
         }
     }
 }
@@ -157,56 +158,56 @@ impl<'a> field::Visit for EventBuilderWrapper<'a> {
 
         self.add_field_value(&FieldAndValue {
             field_name: field.name(),
-            value: ValueTypes::from(string),
+            value: &ValueTypes::from(string),
         })
     }
 
     fn record_f64(&mut self, field: &field::Field, value: f64) {
         self.add_field_value(&FieldAndValue {
             field_name: field.name(),
-            value: ValueTypes::from(value),
+            value: &ValueTypes::from(value),
         })
     }
 
     fn record_i64(&mut self, field: &field::Field, value: i64) {
         self.add_field_value(&FieldAndValue {
             field_name: field.name(),
-            value: ValueTypes::from(value),
+            value: &ValueTypes::from(value),
         })
     }
 
     fn record_u64(&mut self, field: &field::Field, value: u64) {
         self.add_field_value(&FieldAndValue {
             field_name: field.name(),
-            value: ValueTypes::from(value),
+            value: &ValueTypes::from(value),
         })
     }
 
     fn record_i128(&mut self, field: &field::Field, value: i128) {
         self.add_field_value(&FieldAndValue {
             field_name: field.name(),
-            value: ValueTypes::from(value),
+            value: &ValueTypes::from(value),
         })
     }
 
     fn record_u128(&mut self, field: &field::Field, value: u128) {
         self.add_field_value(&FieldAndValue {
             field_name: field.name(),
-            value: ValueTypes::from(value),
+            value: &ValueTypes::from(value),
         })
     }
 
     fn record_bool(&mut self, field: &field::Field, value: bool) {
         self.add_field_value(&FieldAndValue {
             field_name: field.name(),
-            value: ValueTypes::from(value),
+            value: &ValueTypes::from(value),
         })
     }
 
     fn record_str(&mut self, field: &field::Field, value: &str) {
         self.add_field_value(&FieldAndValue {
             field_name: field.name(),
-            value: ValueTypes::from(value.to_string()),
+            value: &ValueTypes::from(value.to_string()),
         })
     }
 

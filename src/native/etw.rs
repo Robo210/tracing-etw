@@ -44,15 +44,15 @@ impl AddFieldAndValue for EventBuilderWrapper<'_> {
         match fv.value {
             ValueTypes::None => (),
             ValueTypes::v_u64(u) => {
-                self.eb.add_u64(fv.field_name, u, OutType::Unsigned, 0);
+                self.eb.add_u64(fv.field_name, *u, OutType::Unsigned, 0);
             }
             ValueTypes::v_i64(i) => {
-                self.eb.add_i64(fv.field_name, i, OutType::Signed, 0);
+                self.eb.add_i64(fv.field_name, *i, OutType::Signed, 0);
             }
             ValueTypes::v_u128(u) => unsafe {
                 self.eb.add_u64_sequence(
                     fv.field_name,
-                    core::slice::from_raw_parts(&u.to_le_bytes() as *const u8 as *const u64, 2),
+                    core::slice::from_raw_parts(&(u.to_le_bytes()) as *const u8 as *const u64, 2),
                     OutType::Hex,
                     0,
                 );
@@ -60,24 +60,24 @@ impl AddFieldAndValue for EventBuilderWrapper<'_> {
             ValueTypes::v_i128(i) => unsafe {
                 self.eb.add_u64_sequence(
                     fv.field_name,
-                    core::slice::from_raw_parts(&i.to_le_bytes() as *const u8 as *const u64, 2),
+                    core::slice::from_raw_parts(&(i.to_le_bytes()) as *const u8 as *const u64, 2),
                     OutType::Hex,
                     0,
                 );
             },
             ValueTypes::v_f64(f) => {
-                self.eb.add_f64(fv.field_name, f, OutType::Signed, 0);
+                self.eb.add_f64(fv.field_name, *f, OutType::Signed, 0);
             }
             ValueTypes::v_bool(b) => {
                 self.eb
-                    .add_bool32(fv.field_name, b as i32, OutType::Boolean, 0);
+                    .add_bool32(fv.field_name, *b as i32, OutType::Boolean, 0);
             }
             ValueTypes::v_str(ref s) => {
                 self.eb
                     .add_str8(fv.field_name, s.as_ref(), OutType::String, 0);
             }
             ValueTypes::v_char(c) => {
-                self.eb.add_u8(fv.field_name, c as u8, OutType::String, 0);
+                self.eb.add_u8(fv.field_name, *c as u8, OutType::String, 0);
             }
         }
     }
@@ -123,12 +123,13 @@ impl ProviderWrapper {
         unsafe { self.map_unchecked(|s| &s.provider) }
     }
 
-    pub(crate) fn span_start<'a, R>(
+    pub(crate) fn span_start<'a, 'b, R>(
         self: Pin<&Self>,
-        span: &SpanRef<'a, R>,
+        span: &'b SpanRef<'a, R>,
         timestamp: SystemTime,
         activities: &Activities,
-        data: &[crate::values::FieldAndValue],
+        fields: &'b [&'static str],
+        values: &'b [ValueTypes],
         level: u8,
         keyword: u64,
         event_tag: u32,
@@ -151,8 +152,9 @@ impl ProviderWrapper {
             );
 
             let mut ebw = EventBuilderWrapper { eb: eb.deref_mut() };
-            for fv in data {
-                ebw.add_field_value(fv);
+            
+            for (f, v) in fields.iter().zip(values.iter()) {
+                ebw.add_field_value(&FieldAndValue { field_name: f, value: v });
             }
 
             let _ = eb.write(
@@ -168,12 +170,13 @@ impl ProviderWrapper {
         });
     }
 
-    pub(crate) fn span_stop<'a, R>(
+    pub(crate) fn span_stop<'a, 'b, R>(
         self: Pin<&Self>,
-        span: &SpanRef<'a, R>,
+        span: &'b SpanRef<'a, R>,
         timestamp: SystemTime,
         activities: &Activities,
-        data: &[crate::values::FieldAndValue],
+        fields: &'b [&'static str],
+        values: &'b [ValueTypes],
         level: u8,
         keyword: u64,
         event_tag: u32,
@@ -196,8 +199,9 @@ impl ProviderWrapper {
             );
 
             let mut ebw = EventBuilderWrapper { eb: eb.deref_mut() };
-            for fv in data {
-                ebw.add_field_value(fv);
+
+            for (f, v) in fields.iter().zip(values.iter()) {
+                ebw.add_field_value(&FieldAndValue { field_name: f, value: v });
             }
 
             let _ = eb.write(

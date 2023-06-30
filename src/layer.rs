@@ -7,7 +7,7 @@ use tracelogging::Guid;
 use tracing::{span, Subscriber};
 use tracing_subscriber::{registry::LookupSpan, Layer};
 
-use crate::activities::Activities; // filter::{FilterFn}
+use crate::activities::{Activities, self}; // filter::{FilterFn}
 use crate::{native::*, map_level};
 use crate::values::*;
 
@@ -18,10 +18,27 @@ lazy_static! {
         ShardedLock::new(HashMap::new());
 }
 
+// struct EtwLayerData {
+//     activities: Activities,
+//     data: SmallVec::<[FieldAndValue; 5]>, // Original metadata order
+//     indexes: arrayvec::ArrayVec::<u8, 32>, // Sorted indexes for the data array
+// }
+
 struct EtwLayerData {
-    activities: Activities,
-    data: SmallVec::<[FieldAndValue; 5]>, // Original metadata order
-    indexes: arrayvec::ArrayVec::<u8, 32>, // Sorted indexes for the data array
+    _p: usize,
+    activities: &'static Activities,
+    layout: &'static std::alloc::Layout,
+    fields: &'static [&'static str],
+    values: &'static mut [ValueTypes],
+    indexes: &'static mut [u8],
+}
+
+impl Drop for EtwLayerData {
+    fn drop(&mut self) {
+        unsafe {
+            std::alloc::dealloc(self._p as *mut u8, *self.layout)
+        }
+    }
 }
 
 pub struct EtwLayer {
@@ -295,25 +312,54 @@ where
 
         let _ = self.get_or_create_provider_from_metadata(metadata);
 
-        // There can be at most 32 fields. We can sort and search a linear array of that size just fine compared to a map.
-        // We'll allocate room for 5 items inline (close to but not exceeding 256 bytes) and hope that covers the common case.
-        let mut data = SmallVec::<[FieldAndValue; 5]>::with_capacity(attrs.fields().len());
-        data.extend(attrs.fields().iter().map(|f| FieldAndValue {
-            field_name: f.name(),
-            value: ValueTypes::None,
-        }));
+        // We want to back the data that needs to be stored on the span as tightly as possible,
+        // in order to accommodate as many active spans as possible.
+        let data = unsafe {
+            let n = attrs.fields().len();
+            let activities_layout = std::alloc::Layout::for_value(&activities);
+            let layout_layout = std::alloc::Layout::new::<std::alloc::Layout>();
+            let fields_layout = std::alloc::Layout::array::<&str>(n).unwrap();
+            let values_layout = std::alloc::Layout::array::<ValueTypes>(n).unwrap();
+            let indexes_layout = std::alloc::Layout::array::<u8>(n).unwrap();
 
-        let mut indexes = arrayvec::ArrayVec::<u8, 32>::new();
-        for i in 0..data.len() {
-            indexes.push(i as u8);
-        }
+            let (layout, layout_offset) = activities_layout.extend(layout_layout).unwrap();
+            let (layout, fields_offset) = layout.extend(fields_layout).unwrap();
+            let (layout, values_offset) = layout.extend(values_layout).unwrap();
+            let (layout, indexes_offset) = layout.extend(indexes_layout).unwrap();
 
-        indexes.sort_by_key(|idx| data[*idx as usize].field_name);
+            let block = std::alloc::alloc_zeroed(layout);
+            let fields: &mut [&str] = std::slice::from_raw_parts_mut(block.add(fields_offset) as *mut &str, n);
+            let values: &mut [ValueTypes] = std::slice::from_raw_parts_mut(block.add(values_offset) as *mut ValueTypes, n);
+            let indexes: &mut [u8] = std::slice::from_raw_parts_mut(block.add(indexes_offset), n);
 
-        attrs.values().record(&mut ValueVisitor { data: &mut data, indexes: &indexes });
+            *(block as *mut Activities) = activities;
+            *(block.add(layout_offset) as *mut std::alloc::Layout) = layout;
 
-        span.extensions_mut()
-            .insert(EtwLayerData { activities, data, indexes });
+            let mut i = 0;
+            for field in attrs.fields().iter() {
+                fields[i] = field.name();
+                values[i] = ValueTypes::None;
+                indexes[i] = i as u8;
+                i += 1;
+            }
+
+            indexes.sort_by_key(|idx| fields[*idx as usize]);
+
+            EtwLayerData {
+                _p: block as usize,
+                activities: &*(block as *const Activities) as &'static Activities,
+                layout: &*(block.add(layout_offset) as *const std::alloc::Layout) as &'static std::alloc::Layout,
+                fields,
+                values,
+                indexes,
+            }
+        };    
+
+        attrs.values().record(&mut ValueVisitor { fields: data.fields, values: data.values, indexes: data.indexes });
+
+        // This will unfortunately box data. It would be ideal if we could avoid this second heap allocation,
+        // but at least it's small.
+        span.extensions_mut().insert(data);
     }
 
     fn on_enter(&self, id: &span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
@@ -341,8 +387,9 @@ where
         provider.as_ref().span_start(
             &span,
             timestamp,
-            &data.activities,
-            &data.data,
+            data.activities,
+            data.fields,
+            data.values,
             map_level(metadata.level()),
             1,
             0,
@@ -374,8 +421,9 @@ where
         provider.as_ref().span_stop(
             &span,
             timestamp,
-            &data.activities,
-            &data.data,
+            data.activities,
+            data.fields,
+            data.values,
             map_level(metadata.level()),
             1,
             0,
@@ -411,8 +459,9 @@ where
         let data = data.unwrap();
 
         values.record(&mut ValueVisitor {
-            data: &mut data.data,
-            indexes: &data.indexes,
+            fields: data.fields,
+            values: data.values,
+            indexes: data.indexes,
         });
     }
 }
