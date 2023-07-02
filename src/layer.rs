@@ -8,6 +8,7 @@ use tracing_subscriber::{registry::LookupSpan, Layer};
 use crate::values::*;
 use crate::{map_level, native::*};
 
+#[cfg(feature = "unsafe")]
 #[repr(C)]
 struct EtwLayerData {
     _p: usize, // Raw pointer that holds fields/values/indexes/layout
@@ -19,10 +20,20 @@ struct EtwLayerData {
     layout: &'static std::alloc::Layout, // Necessary so we can dealloc _p
 }
 
+#[cfg(feature = "unsafe")]
 impl Drop for EtwLayerData {
     fn drop(&mut self) {
         unsafe { std::alloc::dealloc(self._p as *mut u8, *self.layout) }
     }
+}
+
+#[cfg(not(feature = "unsafe"))]
+struct EtwLayerData {
+    fields: Vec<&'static str>,
+    values: Vec<ValueTypes>,
+    indexes: Vec<u8>,
+    activity_id: [u8; 16], // // if set, byte 0 is 1 and 64-bit span ID in the lower 8 bytes
+    related_activity_id: [u8; 16], // if set, byte 0 is 1 and 64-bit span ID in the lower 8 bytes
 }
 
 pub struct EtwLayer {
@@ -108,7 +119,7 @@ impl EtwLayer {
             }
             ProviderGroup::Linux(name) => {
                 assert!(
-                    eventheader_dynamic::ProviderOptions::is_valid_option_value(&name),
+                    eventheader_dynamic::ProviderOptions::is_valid_option_value(name),
                     "Provider names must be lower case ASCII or numeric digits"
                 );
             }
@@ -158,7 +169,7 @@ where
         &self,
         _metadata: &'static tracing::Metadata<'static>,
     ) -> tracing::subscriber::Interest {
-        if let None = self.provider.get() {
+        if self.provider.get().is_none() {
             panic!();
         }
 
@@ -224,7 +235,7 @@ where
             &activity_id,
             &related_activity_id,
             event.metadata().name(),
-            map_level(event.metadata().level()).into(),
+            map_level(event.metadata().level()),
             1,
             event,
         );
@@ -250,10 +261,13 @@ where
             0
         };
 
-        // We want to back the data that needs to be stored on the span as tightly as possible,
+        let n = metadata.fields().len();
+
+        // We want to pack the data that needs to be stored on the span as tightly as possible,
         // in order to accommodate as many active spans as possible.
-        let data = unsafe {
-            let n = metadata.fields().len();
+        // This is off by default though, since unsafe code is unsafe.
+        #[cfg(feature = "unsafe")]
+        let mut data = unsafe {
             let layout_layout = std::alloc::Layout::new::<std::alloc::Layout>();
             let fields_layout = std::alloc::Layout::array::<&str>(n).unwrap();
             let values_layout = std::alloc::Layout::array::<ValueTypes>(n).unwrap();
@@ -282,7 +296,7 @@ where
 
             indexes.sort_by_key(|idx| fields[*idx as usize]);
 
-            let mut data = EtwLayerData {
+            EtwLayerData {
                 _p: block as usize,
                 fields,
                 values,
@@ -290,27 +304,40 @@ where
                 layout: &*(block as *const std::alloc::Layout) as &'static std::alloc::Layout,
                 activity_id: [0; 16],
                 related_activity_id: [0; 16],
+            }
+        };
+
+        #[cfg(not(feature = "unsafe"))]
+        let mut data = {
+            let mut data = EtwLayerData {
+                fields: vec![""; n],
+                values: Vec::with_capacity(n),
+                indexes: ([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32])[..n].to_vec(),
+                activity_id: [0; 16],
+                related_activity_id: [0; 16],
             };
 
-            let (_, half) = data.activity_id.split_at_mut(8);
-            half.copy_from_slice(&id.into_u64().to_le_bytes());
-
-            data.activity_id[0] = 1;
-            data.related_activity_id[0] = if parent_span_id != 0 {
-                let (_, half) = data.related_activity_id.split_at_mut(8);
-                half.copy_from_slice(&parent_span_id.to_le_bytes());
-                1
-            } else {
-                0
-            };
+            data.values.resize_with(n, ValueTypes::default);
 
             data
         };
 
+        let (_, half) = data.activity_id.split_at_mut(8);
+        half.copy_from_slice(&id.into_u64().to_le_bytes());
+
+        data.activity_id[0] = 1;
+        data.related_activity_id[0] = if parent_span_id != 0 {
+            let (_, half) = data.related_activity_id.split_at_mut(8);
+            half.copy_from_slice(&parent_span_id.to_le_bytes());
+            1
+        } else {
+            0
+        };
+
         attrs.values().record(&mut ValueVisitor {
-            fields: data.fields,
-            values: data.values,
-            indexes: data.indexes,
+            fields: &data.fields,
+            values: &mut data.values,
+            indexes: &mut data.indexes,
         });
 
         // This will unfortunately box data. It would be ideal if we could avoid this second heap allocation,
@@ -323,7 +350,7 @@ where
         let timestamp = std::time::SystemTime::now();
 
         let span = ctx.span(id);
-        if let None = span {
+        if span.is_none() {
             return;
         }
 
@@ -345,8 +372,8 @@ where
             timestamp,
             &data.activity_id,
             &data.related_activity_id,
-            data.fields,
-            data.values,
+            &data.fields,
+            &data.values,
             map_level(metadata.level()),
             1,
             0,
@@ -358,7 +385,7 @@ where
         let timestamp = std::time::SystemTime::now();
 
         let span = ctx.span(id);
-        if let None = span {
+        if span.is_none() {
             return;
         }
 
@@ -380,8 +407,8 @@ where
             timestamp,
             &data.activity_id,
             &data.related_activity_id,
-            data.fields,
-            data.values,
+            &data.fields,
+            &data.values,
             map_level(metadata.level()),
             1,
             0,
@@ -402,7 +429,7 @@ where
         // Values were added to the given span
 
         let span = ctx.span(id);
-        if let None = span {
+        if span.is_none() {
             return;
         }
 
@@ -417,9 +444,9 @@ where
         let data = data.unwrap();
 
         values.record(&mut ValueVisitor {
-            fields: data.fields,
-            values: data.values,
-            indexes: data.indexes,
+            fields: &data.fields,
+            values: &mut data.values,
+            indexes: &mut data.indexes,
         });
     }
 }

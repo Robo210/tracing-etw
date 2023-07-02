@@ -111,11 +111,12 @@ impl ProviderWrapper {
 
     #[inline]
     pub(crate) fn enabled(&self, level: u8, keyword: u64) -> bool {
-        return self
+        self
             .provider
-            .enabled(tracelogging::Level::from_int(level), keyword);
+            .enabled(tracelogging::Level::from_int(level), keyword)
     }
 
+    #[inline(always)]
     fn get_provider(self: Pin<&Self>) -> Pin<&tracelogging_dynamic::Provider> {
         unsafe { self.map_unchecked(|s| &s.provider) }
     }
@@ -245,7 +246,7 @@ impl ProviderWrapper {
         EBW.with(|eb| {
             let mut eb = eb.borrow_mut();
 
-            eb.reset(&event_name, level.into(), keyword, 0);
+            eb.reset(event_name, level.into(), keyword, 0);
             eb.opcode(Opcode::Info);
 
             eb.add_systemtime(

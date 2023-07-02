@@ -11,6 +11,10 @@ authors = ["Kyle Sabo", "Microsoft"]
 [lib]
 crate-type = ["rlib"]
 
+[features]
+unsafe = []
+default = []
+
 [dependencies]
 tracing = {version = "0.1", default-features = false, features = ["std"]}
 tracing-subscriber = {version="0.3", default-features = false, features=["std", "fmt", "registry"]}

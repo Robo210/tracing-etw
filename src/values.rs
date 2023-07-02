@@ -6,7 +6,9 @@ use tracing::field;
 use crate::native::EventBuilderWrapper;
 
 #[allow(non_camel_case_types)]
+#[derive(Default)]
 pub(crate) enum ValueTypes {
+    #[default]
     None,
     v_u64(u64),
     v_i64(i64),
@@ -16,12 +18,6 @@ pub(crate) enum ValueTypes {
     v_bool(bool),
     v_str(Cow<'static, str>), // Would be nice if we didn't have to do a heap allocation
     v_char(char),
-}
-
-impl Default for ValueTypes {
-    fn default() -> Self {
-        ValueTypes::None
-    }
 }
 
 impl From<u64> for ValueTypes {
@@ -99,7 +95,7 @@ impl<'a> ValueVisitor<'a> {
         if let Ok(idx) = res {
             self.values[self.indexes[idx] as usize] = value;
         } else {
-            return; // We don't support (and don't need to support) adding new fields that weren't in the original metadata
+            // We don't support (and don't need to support) adding new fields that weren't in the original metadata
         }
     }
 }
