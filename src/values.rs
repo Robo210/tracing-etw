@@ -6,7 +6,7 @@ use tracing::field;
 use crate::native::EventBuilderWrapper;
 
 #[allow(non_camel_case_types)]
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) enum ValueTypes {
     #[default]
     None,

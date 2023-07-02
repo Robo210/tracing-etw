@@ -8,30 +8,40 @@ use tracing_subscriber::{registry::LookupSpan, Layer};
 use crate::values::*;
 use crate::{map_level, native::*};
 
+// This version of the struct is packed such that all the fields are references into a single,
+// contiguous allocation. The first byte of the allocation is `layout`.
 #[cfg(feature = "unsafe")]
 #[repr(C)]
 struct EtwLayerData {
-    _p: usize, // Raw pointer that holds fields/values/indexes/layout
     fields: &'static [&'static str],
     values: &'static mut [ValueTypes],
     indexes: &'static mut [u8],
     activity_id: [u8; 16], // // if set, byte 0 is 1 and 64-bit span ID in the lower 8 bytes
     related_activity_id: [u8; 16], // if set, byte 0 is 1 and 64-bit span ID in the lower 8 bytes
-    layout: &'static std::alloc::Layout, // Necessary so we can dealloc _p
+    _p: std::ptr::NonNull<std::alloc::Layout>,
 }
 
 #[cfg(feature = "unsafe")]
 impl Drop for EtwLayerData {
     fn drop(&mut self) {
-        unsafe { std::alloc::dealloc(self._p as *mut u8, *self.layout) }
+        unsafe { std::alloc::dealloc(self._p.as_ptr() as *mut u8, *self._p.as_ptr()) }
     }
 }
 
+// Everything in the struct is Send + Sync except the ptr::NonNull.
+// We never deref the ptr::NonNull except in drop, for which safety comes from safe usage of the struct itself.
+// Therefore we can safely tag the whole thing as Send + Sync.
+#[cfg(feature = "unsafe")]
+unsafe impl Send for EtwLayerData {}
+#[cfg(feature = "unsafe")]
+unsafe impl Sync for EtwLayerData {}
+
+// This version of the struct uses only safe code, but has 3 separate heap allocations.
 #[cfg(not(feature = "unsafe"))]
 struct EtwLayerData {
-    fields: Vec<&'static str>,
-    values: Vec<ValueTypes>,
-    indexes: Vec<u8>,
+    fields: Box<[&'static str]>,
+    values: Box<[ValueTypes]>,
+    indexes: Box<[u8]>,
     activity_id: [u8; 16], // // if set, byte 0 is 1 and 64-bit span ID in the lower 8 bytes
     related_activity_id: [u8; 16], // if set, byte 0 is 1 and 64-bit span ID in the lower 8 bytes
 }
@@ -278,13 +288,18 @@ where
             let (layout, indexes_offset) = layout.extend(indexes_layout).unwrap();
 
             let block = std::alloc::alloc_zeroed(layout);
+            if block.is_null() {
+                panic!();
+            }
+
+            let mut layout_field = std::ptr::NonNull::new(block as *mut std::alloc::Layout).unwrap();
             let fields: &mut [&str] =
                 std::slice::from_raw_parts_mut(block.add(fields_offset) as *mut &str, n);
             let values: &mut [ValueTypes] =
                 std::slice::from_raw_parts_mut(block.add(values_offset) as *mut ValueTypes, n);
             let indexes: &mut [u8] = std::slice::from_raw_parts_mut(block.add(indexes_offset), n);
 
-            *(block as *mut std::alloc::Layout) = layout;
+            *layout_field.as_mut() = layout;
 
             let mut i = 0;
             for field in metadata.fields().iter() {
@@ -297,29 +312,24 @@ where
             indexes.sort_by_key(|idx| fields[*idx as usize]);
 
             EtwLayerData {
-                _p: block as usize,
                 fields,
                 values,
                 indexes,
-                layout: &*(block as *const std::alloc::Layout) as &'static std::alloc::Layout,
                 activity_id: [0; 16],
                 related_activity_id: [0; 16],
+                _p: std::ptr::NonNull::new(block as *mut std::alloc::Layout).unwrap(),
             }
         };
 
         #[cfg(not(feature = "unsafe"))]
         let mut data = {
-            let mut data = EtwLayerData {
-                fields: vec![""; n],
-                values: Vec::with_capacity(n),
-                indexes: ([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32])[..n].to_vec(),
+            EtwLayerData {
+                fields: vec![""; n].into_boxed_slice(),
+                values: vec![ValueTypes::None; n].into_boxed_slice(),
+                indexes: ([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32])[..n].to_vec().into_boxed_slice(),
                 activity_id: [0; 16],
                 related_activity_id: [0; 16],
-            };
-
-            data.values.resize_with(n, ValueTypes::default);
-
-            data
+            }
         };
 
         let (_, half) = data.activity_id.split_at_mut(8);

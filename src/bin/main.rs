@@ -8,7 +8,7 @@ fn main() {
     //     .without_time();
     let subscriber = tracing_subscriber::registry()
         .with(EtwLayer::new("test"))
-        .with(EtwLayer::new("test2").with_common_schema_events())
+        //.with(EtwLayer::new("test2").with_common_schema_events())
         .with(tracing_subscriber::fmt::layer().with_span_events(FmtSpan::ACTIVE));
     let _sub = subscriber.try_init();
 
@@ -35,4 +35,7 @@ fn main() {
     span!(Level::INFO, "nested_span", key = "value").in_scope(|| {
         event!(Level::ERROR, "oh noes!");
     });
+
+    drop(_enter);
+    drop(span);
 }
