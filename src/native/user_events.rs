@@ -24,19 +24,19 @@ impl AddFieldAndValue for EventBuilderWrapper<'_> {
                 self.eb
                     .add_value(fv.field_name, *i, FieldFormat::SignedInt, 0);
             }
-            ValueTypes::v_u128(u) => unsafe {
-                self.eb.add_value_sequence(
+            ValueTypes::v_u128(u) => {
+                self.eb.add_value(
                     fv.field_name,
-                    core::slice::from_raw_parts(&(u.to_le_bytes()) as *const u8 as *const u64, 2),
-                    FieldFormat::HexInt,
+                    u.to_le_bytes(),
+                    FieldFormat::Default,
                     0,
                 );
             },
-            ValueTypes::v_i128(i) => unsafe {
-                self.eb.add_value_sequence(
+            ValueTypes::v_i128(i) => {
+                self.eb.add_value(
                     fv.field_name,
-                    core::slice::from_raw_parts(&(i.to_le_bytes()) as *const u8 as *const u64, 2),
-                    FieldFormat::HexInt,
+                    i.to_le_bytes(),
+                    FieldFormat::Default,
                     0,
                 );
             },
@@ -45,7 +45,7 @@ impl AddFieldAndValue for EventBuilderWrapper<'_> {
             }
             ValueTypes::v_bool(b) => {
                 self.eb
-                    .add_value(fv.field_name, *b as i32, FieldFormat::Boolean, 0);
+                    .add_value(fv.field_name, *b, FieldFormat::Boolean, 0);
             }
             ValueTypes::v_str(ref s) => {
                 self.eb
@@ -53,7 +53,7 @@ impl AddFieldAndValue for EventBuilderWrapper<'_> {
             }
             ValueTypes::v_char(c) => {
                 self.eb
-                    .add_value(fv.field_name, *c as u8, FieldFormat::String8, 0);
+                    .add_value(fv.field_name, *c, FieldFormat::StringUtf, 0);
             }
         }
     }
@@ -134,11 +134,11 @@ impl ProviderWrapper {
             .read()
             .unwrap()
             .find_set(eventheader_dynamic::Level::from_int(level), keyword);
-        if es.is_some() {
-            es.unwrap().enabled()
+        return if let Some(s) = es {
+            s.enabled()
         } else {
             false
-        }
+        };
     }
 
     pub(crate) fn span_start<'a, 'b, R>(

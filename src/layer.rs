@@ -182,9 +182,7 @@ where
         &self,
         _metadata: &'static tracing::Metadata<'static>,
     ) -> tracing::subscriber::Interest {
-        if self.provider.get().is_none() {
-            panic!();
-        }
+        assert!(self.provider.get().is_some());
 
         // Returning "sometimes" means the enabled function will be called every time an event or span is created from the callsite.
         // This will let us perform a global "is enabled" check each time.
@@ -262,12 +260,12 @@ where
         id: &span::Id,
         ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        let span = ctx.span(id);
-        if span.is_none() {
+        let span = if let Some(span) = ctx.span(id) {
+            span
+        } else {
             return;
-        }
+        };
 
-        let span = span.unwrap();
         let metadata = span.metadata();
 
         let parent_span_id = if attrs.is_contextual() {
@@ -370,21 +368,21 @@ where
         // A span was started
         let timestamp = std::time::SystemTime::now();
 
-        let span = ctx.span(id);
-        if span.is_none() {
+        let span = if let Some(span) = ctx.span(id) {
+            span
+        } else {
             return;
-        }
+        };
 
-        let span = span.unwrap();
         let metadata = span.metadata();
 
         let mut extensions = span.extensions_mut();
-        let data = extensions.get_mut::<EtwLayerData>();
-        if data.is_none() {
+        let data = if let Some(data) = extensions.get_mut::<EtwLayerData>() {
+            data
+        } else {
             // We got a span that was entered without being new'ed?
             return;
-        }
-        let data = data.unwrap();
+        };
 
         let provider = self.provider.get().unwrap();
 
@@ -405,21 +403,21 @@ where
         // A span was exited
         let timestamp = std::time::SystemTime::now();
 
-        let span = ctx.span(id);
-        if span.is_none() {
+        let span = if let Some(span) = ctx.span(id) {
+            span
+        } else {
             return;
-        }
+        };
 
-        let span = span.unwrap();
         let metadata = span.metadata();
 
         let mut extensions = span.extensions_mut();
-        let data = extensions.get_mut::<EtwLayerData>();
-        if data.is_none() {
+        let data = if let Some(data) = extensions.get_mut::<EtwLayerData>() {
+            data
+        } else {
             // We got a span that was entered without being new'ed?
             return;
-        }
-        let data = data.unwrap();
+        };
 
         let provider = self.provider.get().unwrap();
 
@@ -449,20 +447,19 @@ where
     ) {
         // Values were added to the given span
 
-        let span = ctx.span(id);
-        if span.is_none() {
+        let span = if let Some(span) = ctx.span(id) {
+            span
+        } else {
             return;
-        }
-
-        let span = span.unwrap();
+        };
 
         let mut extensions = span.extensions_mut();
-        let data = extensions.get_mut::<EtwLayerData>();
-        if data.is_none() {
+        let data = if let Some(data) = extensions.get_mut::<EtwLayerData>() {
+            data
+        } else {
             // We got a span that was entered without being new'ed?
             return;
-        }
-        let data = data.unwrap();
+        };
 
         values.record(&mut ValueVisitor {
             fields: &data.fields,
