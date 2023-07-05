@@ -17,7 +17,8 @@ impl AddFieldAndValue for EventBuilderWrapper<'_> {
         match fv.value {
             ValueTypes::None => (),
             ValueTypes::v_u64(u) => {
-                self.eb.add_value(fv.field_name, *u, FieldFormat::Default, 0);
+                self.eb
+                    .add_value(fv.field_name, *u, FieldFormat::Default, 0);
             }
             ValueTypes::v_i64(i) => {
                 self.eb
@@ -198,7 +199,7 @@ impl ProviderWrapper {
                     Some(&related_activity_id)
                 } else {
                     None
-                }
+                },
             );
         });
     }
@@ -261,7 +262,7 @@ impl ProviderWrapper {
                     Some(&related_activity_id)
                 } else {
                     None
-                }
+                },
             );
         });
     }
@@ -311,7 +312,7 @@ impl ProviderWrapper {
                     Some(&related_activity_id)
                 } else {
                     None
-                }
+                },
             );
         });
     }

@@ -159,7 +159,8 @@ where
             ProviderWrapper::new(
                 &self.provider_name,
                 &GuidWrapper::from(&self.provider_id).into(),
-                &self.provider_group)
+                &self.provider_group,
+            )
         });
     }
 
@@ -171,10 +172,12 @@ where
             ProviderWrapper::new(
                 &self.provider_name,
                 &GuidWrapper::from(&self.provider_id).into(),
-                &self.provider_group)
+                &self.provider_group,
+            )
         });
     }
 
+    #[cfg(feature = "global_filter")]
     fn register_callsite(
         &self,
         _metadata: &'static tracing::Metadata<'static>,
@@ -192,6 +195,7 @@ where
         tracing::subscriber::Interest::sometimes()
     }
 
+    #[cfg(feature = "global_filter")]
     fn enabled(
         &self,
         metadata: &tracing::Metadata<'_>,
@@ -201,6 +205,7 @@ where
         provider.enabled(map_level(metadata.level()), 0)
     }
 
+    #[cfg(feature = "global_filter")]
     fn event_enabled(
         &self,
         _event: &tracing::Event<'_>,
@@ -292,7 +297,8 @@ where
                 panic!();
             }
 
-            let mut layout_field = std::ptr::NonNull::new(block as *mut std::alloc::Layout).unwrap();
+            let mut layout_field =
+                std::ptr::NonNull::new(block as *mut std::alloc::Layout).unwrap();
             let fields: &mut [&str] =
                 std::slice::from_raw_parts_mut(block.add(fields_offset) as *mut &str, n);
             let values: &mut [ValueTypes] =
@@ -326,7 +332,12 @@ where
             EtwLayerData {
                 fields: vec![""; n].into_boxed_slice(),
                 values: vec![ValueTypes::None; n].into_boxed_slice(),
-                indexes: ([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32])[..n].to_vec().into_boxed_slice(),
+                indexes: ([
+                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+                ])[..n]
+                    .to_vec()
+                    .into_boxed_slice(),
                 activity_id: [0; 16],
                 related_activity_id: [0; 16],
             }

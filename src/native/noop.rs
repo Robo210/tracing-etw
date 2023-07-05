@@ -2,7 +2,7 @@ use std::{pin::Pin, sync::Arc, time::SystemTime};
 
 use tracing_subscriber::registry::{LookupSpan, SpanRef};
 
-use crate::{values::*};
+use crate::values::*;
 
 use super::ProviderGroup;
 

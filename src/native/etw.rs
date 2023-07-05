@@ -1,4 +1,4 @@
-use crate::{values::*};
+use crate::values::*;
 use chrono::{Datelike, Timelike};
 use std::{cell::RefCell, ops::DerefMut, pin::Pin, sync::Arc, time::SystemTime};
 use tracelogging::*;
@@ -111,8 +111,7 @@ impl ProviderWrapper {
 
     #[inline]
     pub(crate) fn enabled(&self, level: u8, keyword: u64) -> bool {
-        self
-            .provider
+        self.provider
             .enabled(tracelogging::Level::from_int(level), keyword)
     }
 
