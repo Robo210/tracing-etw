@@ -41,40 +41,34 @@ impl AddFieldAndValue for EventBuilderWrapper<'_> {
         match fv.value {
             ValueTypes::None => (),
             ValueTypes::v_u64(u) => {
-                self.eb.add_u64(fv.field_name, *u, OutType::Unsigned, 0);
+                self.eb.add_u64(fv.field_name, *u, OutType::Default, 0);
             }
             ValueTypes::v_i64(i) => {
-                self.eb.add_i64(fv.field_name, *i, OutType::Signed, 0);
+                self.eb.add_i64(fv.field_name, *i, OutType::Default, 0);
             }
-            ValueTypes::v_u128(u) => unsafe {
-                self.eb.add_u64_sequence(
-                    fv.field_name,
-                    core::slice::from_raw_parts(&(u.to_le_bytes()) as *const u8 as *const u64, 2),
-                    OutType::Hex,
-                    0,
-                );
+            ValueTypes::v_u128(u) => {
+                // Or maybe add_binaryc?
+                self.eb.add_binary(fv.field_name, u.to_le_bytes(), OutType::Default, 0);
             },
-            ValueTypes::v_i128(i) => unsafe {
-                self.eb.add_u64_sequence(
-                    fv.field_name,
-                    core::slice::from_raw_parts(&(i.to_le_bytes()) as *const u8 as *const u64, 2),
-                    OutType::Hex,
-                    0,
-                );
+            ValueTypes::v_i128(i) => {
+                // Or maybe add_binaryc?
+                self.eb.add_binary(fv.field_name, i.to_le_bytes(), OutType::Default, 0);
             },
             ValueTypes::v_f64(f) => {
-                self.eb.add_f64(fv.field_name, *f, OutType::Signed, 0);
+                self.eb.add_f64(fv.field_name, *f, OutType::Default, 0);
             }
             ValueTypes::v_bool(b) => {
+                // Or maybe add_u8 + OutType::Boolean?
                 self.eb
-                    .add_bool32(fv.field_name, *b as i32, OutType::Boolean, 0);
+                    .add_bool32(fv.field_name, *b as i32, OutType::Default, 0);
             }
             ValueTypes::v_str(ref s) => {
                 self.eb
-                    .add_str8(fv.field_name, s.as_ref(), OutType::String, 0);
+                    .add_str8(fv.field_name, s.as_ref(), OutType::Utf8, 0);
             }
             ValueTypes::v_char(c) => {
-                self.eb.add_u8(fv.field_name, *c as u8, OutType::String, 0);
+                // Or add_str16 with a 1-char (BMP) or 2-char (surrogate-pair) string.
+                self.eb.add_u16(fv.field_name, *c as u16, OutType::String, 0);
             }
         }
     }
