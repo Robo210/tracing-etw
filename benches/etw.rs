@@ -1,14 +1,14 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use etw_helpers::{FileMode, SessionBuilder};
 use tracing::{event, span, Level};
-use tracing_etw::EtwLayer;
+use tracing_etw::*;
 use tracing_subscriber::{self, prelude::*};
 
 #[cfg(all(target_os = "windows"))]
 pub fn etw_benchmark(c: &mut Criterion) {
-    let layer = EtwLayer::new("etw_bench");
-    let provider_id = layer.get_provider_id().to_u128();
-    let _subscriber = tracing_subscriber::registry().with(layer).init();
+    let builder = EtwLayerBuilder::new("etw_bench");
+    let provider_id = builder.get_provider_id().to_u128();
+    let _subscriber = tracing_subscriber::registry().with(builder.build_with_filter()).init();
 
     let etw_session = SessionBuilder::new_file_mode(
         "tokio-tracing-etw-bench",

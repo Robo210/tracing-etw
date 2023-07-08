@@ -1,14 +1,15 @@
 use tracing::{event, span, Level};
-use tracing_etw::EtwLayer;
+use tracing_etw::{EtwLayerBuilder};
 use tracing_subscriber::{self, fmt::format::FmtSpan, prelude::*};
 
 fn main() {
     // let subscriber = tracing_subscriber::fmt::fmt()
     //     .with_span_events(FmtSpan::FULL)
     //     .without_time();
+
     let subscriber = tracing_subscriber::registry()
-        .with(EtwLayer::new("test"))
-        //.with(EtwLayer::new("test2").with_common_schema_events())
+        .with(EtwLayerBuilder::new("test").build_with_filter())
+        .with(EtwLayerBuilder::new("test2").with_common_schema_events().build_with_filter())
         .with(tracing_subscriber::fmt::layer().with_span_events(FmtSpan::ACTIVE));
     let _sub = subscriber.try_init();
 

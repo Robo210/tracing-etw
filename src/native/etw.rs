@@ -1,6 +1,6 @@
 use crate::values::*;
 use chrono::{Datelike, Timelike};
-use std::{cell::RefCell, ops::DerefMut, pin::Pin, sync::Arc, time::SystemTime};
+use std::{cell::RefCell, pin::Pin, sync::Arc, time::SystemTime, ops::DerefMut};
 use tracelogging::*;
 use tracelogging_dynamic::EventBuilder;
 use tracing_subscriber::registry::{LookupSpan, SpanRef};

@@ -1,8 +1,10 @@
-use std::sync::OnceLock;
+use std::marker::PhantomData;
 use std::{pin::Pin, sync::Arc};
 
 use tracelogging::Guid;
 use tracing::{span, Subscriber};
+use tracing_subscriber::filter::Filtered;
+use tracing_subscriber::layer::Filter;
 use tracing_subscriber::{registry::LookupSpan, Layer};
 
 use crate::values::*;
@@ -46,22 +48,20 @@ struct EtwLayerData {
     related_activity_id: [u8; 16], // if set, byte 0 is 1 and 64-bit span ID in the lower 8 bytes
 }
 
-pub struct EtwLayer {
+pub struct EtwLayerBuilder {
     pub(crate) provider_name: String,
     pub(crate) provider_id: tracelogging::Guid,
     pub(crate) provider_group: ProviderGroup,
     pub(crate) emit_common_schema_events: bool,
-    provider: OnceLock<Pin<Arc<ProviderWrapper>>>,
 }
 
-impl EtwLayer {
+impl EtwLayerBuilder {
     pub fn new(name: &str) -> Self {
-        EtwLayer {
+        EtwLayerBuilder {
             provider_name: name.to_owned(),
             provider_id: Guid::from_name(name),
             provider_group: ProviderGroup::Unset,
             emit_common_schema_events: false,
-            provider: OnceLock::new(),
         }
     }
 
@@ -145,36 +145,81 @@ impl EtwLayer {
             //panic!("Linux provider names must be ASCII alphanumeric");
         }
     }
-}
 
-impl<S: Subscriber> Layer<S> for EtwLayer
-where
-    S: for<'lookup> LookupSpan<'lookup>,
-{
-    fn on_register_dispatch(&self, _collector: &tracing::Dispatch) {
-        // Late init when the layer is installed as a subscriber
+    #[cfg(feature = "global_filter")]
+    pub fn build(self) -> EtwLayer<Registry> {
         self.validate_config();
 
-        self.provider.get_or_init(|| {
-            ProviderWrapper::new(
+        EtwLayer {
+            provider: ProviderWrapper::new(
                 &self.provider_name,
                 &GuidWrapper::from(&self.provider_id).into(),
                 &self.provider_group,
-            )
-        });
+            ),
+            _p: PhantomData
+        }
+    }
+
+    //#[cfg(not(feature = "global_filter"))]
+    pub fn build_with_filter<S>(self) -> Filtered<EtwLayer<S>, EtwFilter<S>, S>
+    where S: Subscriber + for<'a> LookupSpan<'a> {
+        self.validate_config();
+
+        let layer = EtwLayer::<S> {
+            provider: ProviderWrapper::new(
+                &self.provider_name,
+                &GuidWrapper::from(&self.provider_id).into(),
+                &self.provider_group,
+            ),
+            _p: PhantomData
+        };
+
+        let filter = EtwFilter::<S> {
+            provider: layer.provider.clone(),
+            _p: PhantomData
+        };
+
+        layer.with_filter(filter)
+    }
+}
+
+pub struct EtwFilter<S> {
+    provider: Pin<Arc<ProviderWrapper>>,
+    _p: PhantomData<S>,
+}
+
+impl<S> Filter<S> for EtwFilter<S>
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn callsite_enabled(&self, _meta: &'static tracing::Metadata<'static>) -> tracing::subscriber::Interest {
+        tracing::subscriber::Interest::sometimes()
+    }
+
+    fn enabled(&self, metadata: &tracing::Metadata<'_>, _cx: &tracing_subscriber::layer::Context<'_,S>) -> bool {
+        self.provider.enabled(map_level(metadata.level()), 0)
+    }
+
+    fn event_enabled(&self, event: &tracing::Event<'_>, _cx: &tracing_subscriber::layer::Context<'_,S>) -> bool {
+        self.provider.enabled(map_level(event.metadata().level()), 0)
+    }
+}
+
+pub struct EtwLayer<S> {
+    provider: Pin<Arc<ProviderWrapper>>,
+    _p: PhantomData<S>,
+}
+
+impl<S> Layer<S> for EtwLayer<S>
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn on_register_dispatch(&self, _collector: &tracing::Dispatch) {
+        // Late init when the layer is installed as a subscriber 
     }
 
     fn on_layer(&mut self, _subscriber: &mut S) {
         // Late init when the layer is attached to a subscriber
-        self.validate_config();
-
-        self.provider.get_or_init(|| {
-            ProviderWrapper::new(
-                &self.provider_name,
-                &GuidWrapper::from(&self.provider_id).into(),
-                &self.provider_group,
-            )
-        });
     }
 
     #[cfg(feature = "global_filter")]
@@ -182,8 +227,6 @@ where
         &self,
         _metadata: &'static tracing::Metadata<'static>,
     ) -> tracing::subscriber::Interest {
-        assert!(self.provider.get().is_some());
-
         // Returning "sometimes" means the enabled function will be called every time an event or span is created from the callsite.
         // This will let us perform a global "is enabled" check each time.
         //
@@ -199,8 +242,7 @@ where
         metadata: &tracing::Metadata<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) -> bool {
-        let provider = self.provider.get().unwrap();
-        provider.enabled(map_level(metadata.level()), 0)
+        self.provider.enabled(map_level(metadata.level()), 0)
     }
 
     #[cfg(feature = "global_filter")]
@@ -242,8 +284,7 @@ where
             0
         };
 
-        let provider = self.provider.get().unwrap();
-        provider.as_ref().write_record(
+        self.provider.as_ref().write_record(
             timestamp,
             &activity_id,
             &related_activity_id,
@@ -265,6 +306,10 @@ where
         } else {
             return;
         };
+
+        if span.extensions().get::<EtwLayerData>().is_some() {
+            return;
+        }
 
         let metadata = span.metadata();
 
@@ -361,7 +406,7 @@ where
 
         // This will unfortunately box data. It would be ideal if we could avoid this second heap allocation,
         // but at least it's small.
-        span.extensions_mut().insert(data);
+        span.extensions_mut().replace(data);
     }
 
     fn on_enter(&self, id: &span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
@@ -384,9 +429,7 @@ where
             return;
         };
 
-        let provider = self.provider.get().unwrap();
-
-        provider.as_ref().span_start(
+        self.provider.as_ref().span_start(
             &span,
             timestamp,
             &data.activity_id,
@@ -419,9 +462,7 @@ where
             return;
         };
 
-        let provider = self.provider.get().unwrap();
-
-        provider.as_ref().span_stop(
+        self.provider.as_ref().span_stop(
             &span,
             timestamp,
             &data.activity_id,
