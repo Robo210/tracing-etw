@@ -141,6 +141,11 @@ impl ProviderWrapper {
         };
     }
 
+    #[inline(always)]
+    pub(crate) const fn supports_enable_callback() -> bool {
+        false
+    }
+
     pub(crate) fn span_start<'a, 'b, R>(
         self: Pin<&Self>,
         span: &'b SpanRef<'a, R>,

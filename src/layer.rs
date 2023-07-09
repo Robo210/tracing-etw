@@ -147,7 +147,7 @@ impl EtwLayerBuilder {
     }
 
     #[cfg(feature = "global_filter")]
-    pub fn build(self) -> EtwLayer<Registry> {
+    pub fn build_with_global_filter(self) -> EtwLayer<Registry> {
         self.validate_config();
 
         EtwLayer {
@@ -161,7 +161,7 @@ impl EtwLayerBuilder {
     }
 
     //#[cfg(not(feature = "global_filter"))]
-    pub fn build_with_filter<S>(self) -> Filtered<EtwLayer<S>, EtwFilter<S>, S>
+    pub fn build_with_layer_filter<S>(self) -> Filtered<EtwLayer<S>, EtwFilter<S>, S>
     where S: Subscriber + for<'a> LookupSpan<'a> {
         self.validate_config();
 
@@ -192,8 +192,18 @@ impl<S> Filter<S> for EtwFilter<S>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
-    fn callsite_enabled(&self, _meta: &'static tracing::Metadata<'static>) -> tracing::subscriber::Interest {
-        tracing::subscriber::Interest::sometimes()
+    fn callsite_enabled(&self, metadata: &'static tracing::Metadata<'static>) -> tracing::subscriber::Interest {
+        if ProviderWrapper::supports_enable_callback() {
+            if self.provider.enabled(map_level(metadata.level()), 0) {
+                tracing::subscriber::Interest::always()
+            } else {
+                tracing::subscriber::Interest::never()
+            }
+        } else {
+            // Returning "sometimes" means the enabled function will be called every time an event or span is created from the callsite.
+            // This will let us perform a global "is enabled" check each time.
+            tracing::subscriber::Interest::sometimes()
+        }
     }
 
     fn enabled(&self, metadata: &tracing::Metadata<'_>, _cx: &tracing_subscriber::layer::Context<'_,S>) -> bool {
@@ -225,15 +235,19 @@ where
     #[cfg(feature = "global_filter")]
     fn register_callsite(
         &self,
-        _metadata: &'static tracing::Metadata<'static>,
+        metadata: &'static tracing::Metadata<'static>,
     ) -> tracing::subscriber::Interest {
-        // Returning "sometimes" means the enabled function will be called every time an event or span is created from the callsite.
-        // This will let us perform a global "is enabled" check each time.
-        //
-        // A more complicated design can check for provider enablement here and call rebuild_interest_cache when the provider
-        // callback is invoked. Then we can propagate the provider enablement and level/keyword into tracing's cache.
-        // This will only work for ETW though, as user_events does not get a provider callback.
-        tracing::subscriber::Interest::sometimes()
+        if ProviderWrapper::supports_enable_callback() {
+            if self.provider.enabled(map_level(metadata.level()), 0) {
+                tracing::subscriber::Interest::always()
+            } else {
+                tracing::subscriber::Interest::never()
+            }
+        } else {
+            // Returning "sometimes" means the enabled function will be called every time an event or span is created from the callsite.
+            // This will let us perform a global "is enabled" check each time.
+            tracing::subscriber::Interest::sometimes()
+        }
     }
 
     #[cfg(feature = "global_filter")]
@@ -251,8 +265,7 @@ where
         _event: &tracing::Event<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) -> bool {
-        // Whether or not an event is enabled, after its fields have been constructed.
-        true
+        self.provider.enabled(map_level(event.metadata().level()), 0)
     }
 
     fn on_event(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, S>) {

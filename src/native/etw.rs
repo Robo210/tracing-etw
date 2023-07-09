@@ -78,6 +78,18 @@ pub(crate) struct ProviderWrapper {
     provider: tracelogging_dynamic::Provider,
 }
 
+fn callback_fn(
+    _source_id: &Guid,
+    _event_control_code: u32,
+    _level: Level,
+    _match_any_keyword: u64,
+    _match_all_keyword: u64,
+    _filter_data: usize,
+    _callback_context: usize) {
+        // Every time the enablement changes, reset the event-enabled cache
+        tracing::callsite::rebuild_interest_cache();
+}
+
 impl ProviderWrapper {
     pub(crate) fn new(
         provider_name: &str,
@@ -86,8 +98,10 @@ impl ProviderWrapper {
     ) -> Pin<Arc<Self>> {
         let mut options = tracelogging_dynamic::Provider::options();
         if let ProviderGroup::Windows(guid) = provider_group {
-            options = *options.group_id(guid);
+            options.group_id(guid);
         }
+
+        options.callback(callback_fn, 0);
 
         let wrapper = Arc::pin(ProviderWrapper {
             provider: tracelogging_dynamic::Provider::new_with_id(
@@ -107,6 +121,11 @@ impl ProviderWrapper {
     pub(crate) fn enabled(&self, level: u8, keyword: u64) -> bool {
         self.provider
             .enabled(tracelogging::Level::from_int(level), keyword)
+    }
+
+    #[inline(always)]
+    pub(crate) const fn supports_enable_callback() -> bool {
+        true
     }
 
     #[inline(always)]
