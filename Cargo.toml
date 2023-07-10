@@ -5,7 +5,7 @@ edition = "2021"
 resolver = "2"
 license = "MIT"
 repository = "https://github.com/Robo210/tracing-etw"
-rust-version = "1.70"
+rust-version = "1.68"
 authors = ["Kyle Sabo", "Microsoft"]
 
 [lib]
