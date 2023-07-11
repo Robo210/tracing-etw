@@ -91,6 +91,7 @@ impl ProviderWrapper {
         provider_name: &str,
         _: &eventheader::Guid,
         provider_group: &ProviderGroup,
+        default_keyword: u64,
     ) -> Pin<Arc<Self>> {
         let mut options = eventheader_dynamic::Provider::new_options();
         if let ProviderGroup::Linux(ref name) = provider_group {
@@ -100,23 +101,23 @@ impl ProviderWrapper {
 
         provider.register_set(
             eventheader_dynamic::Level::from_int(map_level(&tracing::Level::ERROR)),
-            1,
+            default_keyword,
         );
         provider.register_set(
             eventheader_dynamic::Level::from_int(map_level(&tracing::Level::WARN)),
-            1,
+            default_keyword,
         );
         provider.register_set(
             eventheader_dynamic::Level::from_int(map_level(&tracing::Level::INFO)),
-            1,
+            default_keyword,
         );
         provider.register_set(
             eventheader_dynamic::Level::from_int(map_level(&tracing::Level::DEBUG)),
-            1,
+            default_keyword,
         );
         provider.register_set(
             eventheader_dynamic::Level::from_int(map_level(&tracing::Level::TRACE)),
-            1,
+            default_keyword,
         );
 
         Arc::pin(ProviderWrapper {

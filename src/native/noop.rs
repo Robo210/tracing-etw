@@ -21,6 +21,7 @@ impl ProviderWrapper {
         _provider_name: &str,
         _provider_id: &tracelogging::Guid,
         _provider_group: &ProviderGroup,
+        _default_keyword: u64,
     ) -> Pin<Arc<Self>> {
         Arc::pin(Self)
     }

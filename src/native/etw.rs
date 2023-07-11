@@ -95,6 +95,7 @@ impl ProviderWrapper {
         provider_name: &str,
         provider_id: &tracelogging::Guid,
         provider_group: &ProviderGroup,
+        _default_keyword: u64,
     ) -> Pin<Arc<Self>> {
         let mut options = tracelogging_dynamic::Provider::options();
         if let ProviderGroup::Windows(guid) = provider_group {

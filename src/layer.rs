@@ -166,6 +166,7 @@ impl EtwLayerBuilder {
                 &self.provider_name,
                 &GuidWrapper::from(&self.provider_id).into(),
                 &self.provider_group,
+                self.default_keyword,
             ),
             default_keyword: self.default_keyword,
             _p: PhantomData
