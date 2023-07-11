@@ -53,6 +53,7 @@ pub struct EtwLayerBuilder {
     pub(crate) provider_id: tracelogging::Guid,
     pub(crate) provider_group: ProviderGroup,
     pub(crate) emit_common_schema_events: bool,
+    pub(crate) default_keyword: u64,
 }
 
 impl EtwLayerBuilder {
@@ -62,6 +63,7 @@ impl EtwLayerBuilder {
             provider_id: Guid::from_name(name),
             provider_group: ProviderGroup::Unset,
             emit_common_schema_events: false,
+            default_keyword: 1,
         }
     }
 
@@ -80,16 +82,10 @@ impl EtwLayerBuilder {
         self.provider_id
     }
 
-    /// Override the default keywords and levels for events.
-    /// Provide an implementation of the [`KeywordLevelProvider`] trait that will
-    /// return the desired keywords and level values for each type of event.
-    // pub fn with_custom_keywords_levels(
-    //     mut self,
-    //     config: impl KeywordLevelProvider + 'static,
-    // ) -> Self {
-    //     self.exporter_config = Some(Box::new(config));
-    //     self
-    // }
+    pub fn with_default_keyword(mut self, kw: u64) -> Self {
+        self.default_keyword = kw;
+        self
+    }
 
     /// For advanced scenarios.
     /// Emit extra events that follow the Common Schema 4.0 mapping.
@@ -121,7 +117,7 @@ impl EtwLayerBuilder {
         self
     }
 
-    pub(crate) fn validate_config(&self) {
+    fn validate_config(&self) {
         match &self.provider_group {
             ProviderGroup::Unset => (),
             ProviderGroup::Windows(guid) => {
@@ -171,11 +167,13 @@ impl EtwLayerBuilder {
                 &GuidWrapper::from(&self.provider_id).into(),
                 &self.provider_group,
             ),
+            default_keyword: self.default_keyword,
             _p: PhantomData
         };
 
         let filter = EtwFilter::<S> {
             provider: layer.provider.clone(),
+            default_keyword: self.default_keyword,
             _p: PhantomData
         };
 
@@ -185,6 +183,7 @@ impl EtwLayerBuilder {
 
 pub struct EtwFilter<S> {
     provider: Pin<Arc<ProviderWrapper>>,
+    default_keyword: u64,
     _p: PhantomData<S>,
 }
 
@@ -194,7 +193,7 @@ where
 {
     fn callsite_enabled(&self, metadata: &'static tracing::Metadata<'static>) -> tracing::subscriber::Interest {
         if ProviderWrapper::supports_enable_callback() {
-            if self.provider.enabled(map_level(metadata.level()), 0) {
+            if self.provider.enabled(map_level(metadata.level()), self.default_keyword) {
                 tracing::subscriber::Interest::always()
             } else {
                 tracing::subscriber::Interest::never()
@@ -207,16 +206,17 @@ where
     }
 
     fn enabled(&self, metadata: &tracing::Metadata<'_>, _cx: &tracing_subscriber::layer::Context<'_,S>) -> bool {
-        self.provider.enabled(map_level(metadata.level()), 0)
+        self.provider.enabled(map_level(metadata.level()), self.default_keyword)
     }
 
     fn event_enabled(&self, event: &tracing::Event<'_>, _cx: &tracing_subscriber::layer::Context<'_,S>) -> bool {
-        self.provider.enabled(map_level(event.metadata().level()), 0)
+        self.provider.enabled(map_level(event.metadata().level()), self.default_keyword)
     }
 }
 
 pub struct EtwLayer<S> {
     provider: Pin<Arc<ProviderWrapper>>,
+    default_keyword: u64,
     _p: PhantomData<S>,
 }
 
@@ -238,7 +238,7 @@ where
         metadata: &'static tracing::Metadata<'static>,
     ) -> tracing::subscriber::Interest {
         if ProviderWrapper::supports_enable_callback() {
-            if self.provider.enabled(map_level(metadata.level()), 0) {
+            if self.provider.enabled(map_level(metadata.level()), self.default_keyword) {
                 tracing::subscriber::Interest::always()
             } else {
                 tracing::subscriber::Interest::never()
@@ -256,7 +256,7 @@ where
         metadata: &tracing::Metadata<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) -> bool {
-        self.provider.enabled(map_level(metadata.level()), 0)
+        self.provider.enabled(map_level(metadata.level()), self.default_keyword)
     }
 
     #[cfg(feature = "global_filter")]
@@ -265,7 +265,7 @@ where
         _event: &tracing::Event<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) -> bool {
-        self.provider.enabled(map_level(event.metadata().level()), 0)
+        self.provider.enabled(map_level(event.metadata().level()), self.default_keyword)
     }
 
     fn on_event(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, S>) {
@@ -303,7 +303,7 @@ where
             &related_activity_id,
             event.metadata().name(),
             map_level(event.metadata().level()),
-            1,
+            self.default_keyword,
             event,
         );
     }
@@ -450,7 +450,7 @@ where
             &data.fields,
             &data.values,
             map_level(metadata.level()),
-            1,
+            self.default_keyword,
             0,
         );
     }
@@ -483,7 +483,7 @@ where
             &data.fields,
             &data.values,
             map_level(metadata.level()),
-            1,
+            self.default_keyword,
             0,
         );
     }

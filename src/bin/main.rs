@@ -1,5 +1,5 @@
 use tracing::{event, span, Level};
-use tracing_etw::{EtwLayerBuilder};
+use tracing_etw::EtwLayerBuilder;
 use tracing_subscriber::{self, fmt::format::FmtSpan, prelude::*};
 
 fn main() {
