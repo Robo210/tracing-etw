@@ -127,7 +127,7 @@ where
     /// Set the EventHeader provider group to join this provider to.
     #[cfg(any(target_os = "linux", doc))]
     pub fn with_provider_group(mut self, name: &str) -> Self {
-        self.provider_group = ProviderGroup::Linux(std::borrow::Cow::Owned(name.to_owned()));
+        self.provider_group = native::ProviderGroup::Linux(std::borrow::Cow::Owned(name.to_owned()));
         self
     }
 
