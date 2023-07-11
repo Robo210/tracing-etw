@@ -13,7 +13,9 @@ pub(crate) struct PayloadFieldVisitor<'a> {
 }
 
 impl<'a> PayloadFieldVisitor<'a> {
-    fn make_visitor(eb: &'a mut eventheader_dynamic::EventBuilder) -> VisitorWrapper<PayloadFieldVisitor<'a>> {
+    fn make_visitor(
+        eb: &'a mut eventheader_dynamic::EventBuilder,
+    ) -> VisitorWrapper<PayloadFieldVisitor<'a>> {
         VisitorWrapper::from(PayloadFieldVisitor { eb })
     }
 }
@@ -31,21 +33,13 @@ impl<T> AddFieldAndValue<T> for PayloadFieldVisitor<'_> {
                     .add_value(fv.field_name, *i, FieldFormat::SignedInt, 0);
             }
             ValueTypes::v_u128(u) => {
-                self.eb.add_value(
-                    fv.field_name,
-                    u.to_le_bytes(),
-                    FieldFormat::Default,
-                    0,
-                );
-            },
+                self.eb
+                    .add_value(fv.field_name, u.to_le_bytes(), FieldFormat::Default, 0);
+            }
             ValueTypes::v_i128(i) => {
-                self.eb.add_value(
-                    fv.field_name,
-                    i.to_le_bytes(),
-                    FieldFormat::Default,
-                    0,
-                );
-            },
+                self.eb
+                    .add_value(fv.field_name, i.to_le_bytes(), FieldFormat::Default, 0);
+            }
             ValueTypes::v_f64(f) => {
                 self.eb.add_value(fv.field_name, *f, FieldFormat::Float, 0);
             }
@@ -101,7 +95,10 @@ impl crate::native::EventWriter for Provider {
         _: &G,
         provider_group: &ProviderGroup,
         default_keyword: u64,
-    ) -> Pin<Arc<Self>> where for <'a> &'a G: Into<crate::native::GuidWrapper> {
+    ) -> Pin<Arc<Self>>
+    where
+        for<'a> &'a G: Into<crate::native::GuidWrapper>,
+    {
         let mut options = eventheader_dynamic::Provider::new_options();
         if let ProviderGroup::Linux(ref name) = provider_group {
             options = *options.group_name(&name);
@@ -141,11 +138,7 @@ impl crate::native::EventWriter for Provider {
             .read()
             .unwrap()
             .find_set(eventheader_dynamic::Level::from_int(level), keyword);
-        return if let Some(s) = es {
-            s.enabled()
-        } else {
-            false
-        };
+        return if let Some(s) = es { s.enabled() } else { false };
     }
 
     #[inline(always)]

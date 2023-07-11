@@ -4,7 +4,7 @@ use tracing_subscriber::registry::{LookupSpan, SpanRef};
 
 use crate::values::*;
 
-use super::ProviderGroup;
+use crate::native::ProviderGroup;
 
 pub(crate) struct EventBuilderWrapper<'a> {
     _p: core::marker::PhantomData<&'a u8>,
@@ -18,12 +18,15 @@ impl<T> AddFieldAndValue<T> for EventBuilderWrapper<'_> {
 pub struct Provider;
 
 impl crate::native::EventWriter for Provider {
-    fn new(
+    fn new<G>(
         _provider_name: &str,
-        _provider_id: &tracelogging::Guid,
+        _provider_id: &G,
         _provider_group: &ProviderGroup,
         _default_keyword: u64,
-    ) -> Pin<Arc<Self>> {
+    ) -> Pin<Arc<Self>>
+    where
+        for<'a> &'a G: Into<crate::native::GuidWrapper>,
+    {
         Arc::pin(Self)
     }
 

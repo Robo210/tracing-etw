@@ -7,7 +7,7 @@ use tracing_subscriber::filter::Filtered;
 use tracing_subscriber::layer::Filter;
 use tracing_subscriber::{registry::LookupSpan, Layer};
 
-use crate::native::{EventWriter, EventMode};
+use crate::native::{EventMode, EventWriter};
 use crate::values::*;
 use crate::{map_level, native};
 
@@ -78,7 +78,9 @@ impl LayerBuilder {
     /// may perform worse. Common Schema events are much slower to generate
     /// and should not be enabled unless absolutely necessary.
     #[cfg(feature = "common_schema")]
-    pub fn new_common_schema_events(name: &str) -> EtwLayerBuilder<native::common_schema::Provider> {
+    pub fn new_common_schema_events(
+        name: &str,
+    ) -> EtwLayerBuilder<native::common_schema::Provider> {
         EtwLayerBuilder::<native::common_schema::Provider> {
             provider_name: name.to_owned(),
             provider_id: Guid::from_name(name),
@@ -89,8 +91,10 @@ impl LayerBuilder {
     }
 }
 
-impl<Mode> EtwLayerBuilder<Mode> 
-where Mode : EventMode {
+impl<Mode> EtwLayerBuilder<Mode>
+where
+    Mode: EventMode,
+{
     /// For advanced scenarios.
     /// Assign a provider ID to the ETW provider rather than use
     /// one generated from the provider name.
@@ -154,7 +158,9 @@ where Mode : EventMode {
 
     #[cfg(feature = "global_filter")]
     pub fn build_with_global_filter<S>(self) -> EtwLayer<S, Mode>
-    where S: Subscriber + for<'a> LookupSpan<'a> {
+    where
+        S: Subscriber + for<'a> LookupSpan<'a>,
+    {
         self.validate_config();
 
         EtwLayer::<S, native::Provider> {
@@ -165,14 +171,18 @@ where Mode : EventMode {
                 self.default_keyword,
             ),
             default_keyword: self.default_keyword,
-            _p: PhantomData
+            _p: PhantomData,
         }
     }
 
     #[cfg(not(feature = "global_filter"))]
-    pub fn build_with_layer_filter<S>(self) -> Filtered<EtwLayer<S, Mode::Provider>, EtwFilter<S, Mode::Provider>, S>
-    where S: Subscriber + for<'a> LookupSpan<'a>,
-          Mode::Provider : EventWriter + 'static {
+    pub fn build_with_layer_filter<S>(
+        self,
+    ) -> Filtered<EtwLayer<S, Mode::Provider>, EtwFilter<S, Mode::Provider>, S>
+    where
+        S: Subscriber + for<'a> LookupSpan<'a>,
+        Mode::Provider: EventWriter + 'static,
+    {
         self.validate_config();
 
         let layer = EtwLayer::<S, Mode::Provider> {
@@ -183,13 +193,13 @@ where Mode : EventMode {
                 self.default_keyword,
             ),
             default_keyword: self.default_keyword,
-            _p: PhantomData
+            _p: PhantomData,
         };
 
         let filter = EtwFilter::<S, _> {
             provider: layer.provider.clone(),
             default_keyword: self.default_keyword,
-            _p: PhantomData
+            _p: PhantomData,
         };
 
         layer.with_filter(filter)
@@ -205,11 +215,17 @@ pub struct EtwFilter<S, P> {
 impl<S, P> Filter<S> for EtwFilter<S, P>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
-    P: EventWriter + 'static
+    P: EventWriter + 'static,
 {
-    fn callsite_enabled(&self, metadata: &'static tracing::Metadata<'static>) -> tracing::subscriber::Interest {
+    fn callsite_enabled(
+        &self,
+        metadata: &'static tracing::Metadata<'static>,
+    ) -> tracing::subscriber::Interest {
         if P::supports_enable_callback() {
-            if self.provider.enabled(map_level(metadata.level()), self.default_keyword) {
+            if self
+                .provider
+                .enabled(map_level(metadata.level()), self.default_keyword)
+            {
                 tracing::subscriber::Interest::always()
             } else {
                 tracing::subscriber::Interest::never()
@@ -221,12 +237,22 @@ where
         }
     }
 
-    fn enabled(&self, metadata: &tracing::Metadata<'_>, _cx: &tracing_subscriber::layer::Context<'_,S>) -> bool {
-        self.provider.enabled(map_level(metadata.level()), self.default_keyword)
+    fn enabled(
+        &self,
+        metadata: &tracing::Metadata<'_>,
+        _cx: &tracing_subscriber::layer::Context<'_, S>,
+    ) -> bool {
+        self.provider
+            .enabled(map_level(metadata.level()), self.default_keyword)
     }
 
-    fn event_enabled(&self, event: &tracing::Event<'_>, _cx: &tracing_subscriber::layer::Context<'_,S>) -> bool {
-        self.provider.enabled(map_level(event.metadata().level()), self.default_keyword)
+    fn event_enabled(
+        &self,
+        event: &tracing::Event<'_>,
+        _cx: &tracing_subscriber::layer::Context<'_, S>,
+    ) -> bool {
+        self.provider
+            .enabled(map_level(event.metadata().level()), self.default_keyword)
     }
 }
 
@@ -239,10 +265,10 @@ pub struct EtwLayer<S, P> {
 impl<S, P> Layer<S> for EtwLayer<S, P>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
-    P: EventWriter + 'static
+    P: EventWriter + 'static,
 {
     fn on_register_dispatch(&self, _collector: &tracing::Dispatch) {
-        // Late init when the layer is installed as a subscriber 
+        // Late init when the layer is installed as a subscriber
     }
 
     fn on_layer(&mut self, _subscriber: &mut S) {
@@ -255,7 +281,10 @@ where
         metadata: &'static tracing::Metadata<'static>,
     ) -> tracing::subscriber::Interest {
         if ProviderWrapper::supports_enable_callback() {
-            if self.provider.enabled(map_level(metadata.level()), self.default_keyword) {
+            if self
+                .provider
+                .enabled(map_level(metadata.level()), self.default_keyword)
+            {
                 tracing::subscriber::Interest::always()
             } else {
                 tracing::subscriber::Interest::never()
@@ -273,7 +302,8 @@ where
         metadata: &tracing::Metadata<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) -> bool {
-        self.provider.enabled(map_level(metadata.level()), self.default_keyword)
+        self.provider
+            .enabled(map_level(metadata.level()), self.default_keyword)
     }
 
     #[cfg(feature = "global_filter")]
@@ -282,7 +312,8 @@ where
         _event: &tracing::Event<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) -> bool {
-        self.provider.enabled(map_level(event.metadata().level()), self.default_keyword)
+        self.provider
+            .enabled(map_level(event.metadata().level()), self.default_keyword)
     }
 
     fn on_event(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, S>) {

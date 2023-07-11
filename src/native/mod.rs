@@ -61,12 +61,14 @@ pub enum ProviderGroup {
 
 #[doc(hidden)]
 pub trait EventWriter {
-    fn new<G> (
+    fn new<G>(
         provider_name: &str,
         provider_id: &G,
         provider_group: &ProviderGroup,
         _default_keyword: u64,
-    ) -> std::pin::Pin<std::sync::Arc<Self>> where for <'a> &'a G: Into<GuidWrapper>;
+    ) -> std::pin::Pin<std::sync::Arc<Self>>
+    where
+        for<'a> &'a G: Into<GuidWrapper>;
 
     fn enabled(&self, level: u8, keyword: u64) -> bool;
 
@@ -118,4 +120,6 @@ pub trait EventMode {
 }
 
 #[doc(hidden)]
-impl EventMode for Provider { type Provider = Provider;}
+impl EventMode for Provider {
+    type Provider = Provider;
+}

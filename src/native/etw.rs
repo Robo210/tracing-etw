@@ -1,6 +1,6 @@
 use crate::values::*;
 use chrono::{Datelike, Timelike};
-use std::{cell::RefCell, pin::Pin, sync::Arc, time::SystemTime, ops::DerefMut};
+use std::{cell::RefCell, ops::DerefMut, pin::Pin, sync::Arc, time::SystemTime};
 use tracelogging::*;
 use tracelogging_dynamic::EventBuilder;
 use tracing_subscriber::registry::{LookupSpan, SpanRef};
@@ -37,7 +37,9 @@ pub(crate) struct PayloadFieldVisitor<'a> {
 }
 
 impl<'a> PayloadFieldVisitor<'a> {
-    fn make_visitor(eb: &'a mut tracelogging_dynamic::EventBuilder) -> VisitorWrapper<PayloadFieldVisitor<'a>> {
+    fn make_visitor(
+        eb: &'a mut tracelogging_dynamic::EventBuilder,
+    ) -> VisitorWrapper<PayloadFieldVisitor<'a>> {
         VisitorWrapper::from(PayloadFieldVisitor { eb })
     }
 }
@@ -54,12 +56,14 @@ impl<T> AddFieldAndValue<T> for PayloadFieldVisitor<'_> {
             }
             ValueTypes::v_u128(u) => {
                 // Or maybe add_binaryc?
-                self.eb.add_binary(fv.field_name, u.to_le_bytes(), OutType::Default, 0);
-            },
+                self.eb
+                    .add_binary(fv.field_name, u.to_le_bytes(), OutType::Default, 0);
+            }
             ValueTypes::v_i128(i) => {
                 // Or maybe add_binaryc?
-                self.eb.add_binary(fv.field_name, i.to_le_bytes(), OutType::Default, 0);
-            },
+                self.eb
+                    .add_binary(fv.field_name, i.to_le_bytes(), OutType::Default, 0);
+            }
             ValueTypes::v_f64(f) => {
                 self.eb.add_f64(fv.field_name, *f, OutType::Default, 0);
             }
@@ -74,7 +78,8 @@ impl<T> AddFieldAndValue<T> for PayloadFieldVisitor<'_> {
             }
             ValueTypes::v_char(c) => {
                 // Or add_str16 with a 1-char (BMP) or 2-char (surrogate-pair) string.
-                self.eb.add_u16(fv.field_name, *c as u16, OutType::String, 0);
+                self.eb
+                    .add_u16(fv.field_name, *c as u16, OutType::String, 0);
             }
         }
     }
@@ -92,9 +97,10 @@ fn callback_fn(
     _match_any_keyword: u64,
     _match_all_keyword: u64,
     _filter_data: usize,
-    _callback_context: usize) {
-        // Every time the enablement changes, reset the event-enabled cache
-        tracing::callsite::rebuild_interest_cache();
+    _callback_context: usize,
+) {
+    // Every time the enablement changes, reset the event-enabled cache
+    tracing::callsite::rebuild_interest_cache();
 }
 
 impl Provider {
@@ -110,7 +116,10 @@ impl super::EventWriter for Provider {
         provider_id: &G,
         provider_group: &ProviderGroup,
         _default_keyword: u64,
-    ) -> Pin<Arc<Self>> where for <'a> &'a G: Into<crate::native::GuidWrapper> {
+    ) -> Pin<Arc<Self>>
+    where
+        for<'a> &'a G: Into<crate::native::GuidWrapper>,
+    {
         let mut options = tracelogging_dynamic::Provider::options();
         if let ProviderGroup::Windows(guid) = provider_group {
             options.group_id(guid);

@@ -148,16 +148,22 @@ pub(crate) trait AddFieldAndValue<T> {
 }
 
 pub(crate) struct VisitorWrapper<T> {
-    wrapped: T
+    wrapped: T,
 }
 
-impl<T> From<T> for VisitorWrapper<T> where T: AddFieldAndValue<T> {
+impl<T> From<T> for VisitorWrapper<T>
+where
+    T: AddFieldAndValue<T>,
+{
     fn from(value: T) -> Self {
         VisitorWrapper { wrapped: value }
     }
 }
 
-impl<T> field::Visit for VisitorWrapper<T> where T: AddFieldAndValue<T> {
+impl<T> field::Visit for VisitorWrapper<T>
+where
+    T: AddFieldAndValue<T>,
+{
     fn record_debug(&mut self, field: &field::Field, value: &dyn std::fmt::Debug) {
         let mut string = String::with_capacity(10);
         if write!(string, "{:?}", value).is_err() {

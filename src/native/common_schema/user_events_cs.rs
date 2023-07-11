@@ -1,4 +1,6 @@
-use crate::values::*;
+use crate::{map_level, values::*};
+use eventheader::*;
+use eventheader_dynamic::EventBuilder;
 use std::{
     cell::RefCell,
     io::{Cursor, Write},
@@ -8,8 +10,6 @@ use std::{
     sync::Arc,
     time::SystemTime,
 };
-use tracelogging::*;
-use tracelogging_dynamic::EventBuilder;
 use tracing_subscriber::registry::{LookupSpan, SpanRef};
 
 use crate::native::ProviderGroup;
@@ -17,12 +17,12 @@ use crate::native::ProviderGroup;
 thread_local! {static EBW: std::cell::RefCell<EventBuilder>  = RefCell::new(EventBuilder::new());}
 
 pub(crate) struct CommonSchemaPartCBuilder<'a> {
-    pub(crate) eb: &'a mut tracelogging_dynamic::EventBuilder,
+    pub(crate) eb: &'a mut eventheader_dynamic::EventBuilder,
 }
 
 impl<'a> CommonSchemaPartCBuilder<'a> {
     fn make_visitor(
-        eb: &'a mut tracelogging_dynamic::EventBuilder,
+        eb: &'a mut eventheader_dynamic::EventBuilder,
     ) -> VisitorWrapper<CommonSchemaPartCBuilder<'a>> {
         VisitorWrapper::from(CommonSchemaPartCBuilder { eb })
     }
@@ -43,35 +43,31 @@ impl<T> AddFieldAndValue<T> for CommonSchemaPartCBuilder<'_> {
         match fv.value {
             ValueTypes::None => (),
             ValueTypes::v_u64(u) => {
-                self.eb.add_u64(field_name, *u, OutType::Default, 0);
+                self.eb.add_value(field_name, *u, FieldFormat::Default, 0);
             }
             ValueTypes::v_i64(i) => {
-                self.eb.add_i64(field_name, *i, OutType::Default, 0);
+                self.eb.add_value(field_name, *i, FieldFormat::SignedInt, 0);
             }
             ValueTypes::v_u128(u) => {
-                // Or maybe add_binaryc?
                 self.eb
-                    .add_binary(field_name, u.to_le_bytes(), OutType::Default, 0);
+                    .add_value(field_name, u.to_le_bytes(), FieldFormat::Default, 0);
             }
             ValueTypes::v_i128(i) => {
-                // Or maybe add_binaryc?
                 self.eb
-                    .add_binary(field_name, i.to_le_bytes(), OutType::Default, 0);
+                    .add_value(field_name, i.to_le_bytes(), FieldFormat::Default, 0);
             }
             ValueTypes::v_f64(f) => {
-                self.eb.add_f64(field_name, *f, OutType::Default, 0);
+                self.eb.add_value(field_name, *f, FieldFormat::Float, 0);
             }
             ValueTypes::v_bool(b) => {
-                // Or maybe add_u8 + OutType::Boolean?
-                self.eb
-                    .add_bool32(field_name, *b as i32, OutType::Default, 0);
+                self.eb.add_value(field_name, *b, FieldFormat::Boolean, 0);
             }
             ValueTypes::v_str(ref s) => {
-                self.eb.add_str8(field_name, s.as_ref(), OutType::Utf8, 0);
+                self.eb
+                    .add_str(field_name, s.as_ref(), FieldFormat::Default, 0);
             }
             ValueTypes::v_char(c) => {
-                // Or add_str16 with a 1-char (BMP) or 2-char (surrogate-pair) string.
-                self.eb.add_u16(field_name, *c as u16, OutType::String, 0);
+                self.eb.add_value(field_name, *c, FieldFormat::StringUtf, 0);
             }
         }
     }
@@ -79,25 +75,30 @@ impl<T> AddFieldAndValue<T> for CommonSchemaPartCBuilder<'_> {
 
 #[doc(hidden)]
 pub struct CommonSchemaProvider {
-    provider: tracelogging_dynamic::Provider,
-}
-
-fn callback_fn(
-    _source_id: &Guid,
-    _event_control_code: u32,
-    _level: Level,
-    _match_any_keyword: u64,
-    _match_all_keyword: u64,
-    _filter_data: usize,
-    _callback_context: usize,
-) {
-    // Every time the enablement changes, reset the event-enabled cache
-    tracing::callsite::rebuild_interest_cache();
+    provider: std::sync::RwLock<eventheader_dynamic::Provider>,
 }
 
 impl CommonSchemaProvider {
-    #[inline(always)]
-    fn get_provider(self: Pin<&Self>) -> Pin<&tracelogging_dynamic::Provider> {
+    fn find_set(
+        self: Pin<&Self>,
+        level: eventheader_dynamic::Level,
+        keyword: u64,
+    ) -> Option<Arc<eventheader_dynamic::EventSet>> {
+        self.get_provider().read().unwrap().find_set(level, keyword)
+    }
+
+    fn register_set(
+        self: Pin<&Self>,
+        level: eventheader_dynamic::Level,
+        keyword: u64,
+    ) -> Arc<eventheader_dynamic::EventSet> {
+        self.get_provider()
+            .write()
+            .unwrap()
+            .register_set(level, keyword)
+    }
+
+    fn get_provider(self: Pin<&Self>) -> Pin<&std::sync::RwLock<eventheader_dynamic::Provider>> {
         unsafe { self.map_unchecked(|s| &s.provider) }
     }
 }
@@ -105,43 +106,58 @@ impl CommonSchemaProvider {
 impl crate::native::EventWriter for CommonSchemaProvider {
     fn new<G>(
         provider_name: &str,
-        provider_id: &G,
+        _: &G,
         provider_group: &ProviderGroup,
-        _default_keyword: u64,
+        default_keyword: u64,
     ) -> Pin<Arc<Self>>
     where
         for<'a> &'a G: Into<crate::native::GuidWrapper>,
     {
-        let mut options = tracelogging_dynamic::Provider::options();
-        if let ProviderGroup::Windows(guid) = provider_group {
-            options.group_id(guid);
+        let mut options = eventheader_dynamic::Provider::new_options();
+        if let ProviderGroup::Linux(ref name) = provider_group {
+            options = *options.group_name(&name);
         }
+        let mut provider = eventheader_dynamic::Provider::new(provider_name, &options);
 
-        options.callback(callback_fn, 0);
+        provider.register_set(
+            eventheader_dynamic::Level::from_int(map_level(&tracing::Level::ERROR)),
+            default_keyword,
+        );
+        provider.register_set(
+            eventheader_dynamic::Level::from_int(map_level(&tracing::Level::WARN)),
+            default_keyword,
+        );
+        provider.register_set(
+            eventheader_dynamic::Level::from_int(map_level(&tracing::Level::INFO)),
+            default_keyword,
+        );
+        provider.register_set(
+            eventheader_dynamic::Level::from_int(map_level(&tracing::Level::DEBUG)),
+            default_keyword,
+        );
+        provider.register_set(
+            eventheader_dynamic::Level::from_int(map_level(&tracing::Level::TRACE)),
+            default_keyword,
+        );
 
-        let wrapper = Arc::pin(Self {
-            provider: tracelogging_dynamic::Provider::new_with_id(
-                provider_name,
-                &options,
-                &provider_id.into().into(),
-            ),
-        });
-        unsafe {
-            wrapper.as_ref().get_provider().register();
-        }
-
-        wrapper
+        Arc::pin(Self {
+            provider: std::sync::RwLock::new(provider),
+        })
     }
 
     #[inline]
     fn enabled(&self, level: u8, keyword: u64) -> bool {
-        self.provider
-            .enabled(tracelogging::Level::from_int(level), keyword)
+        let es = self
+            .provider
+            .read()
+            .unwrap()
+            .find_set(eventheader_dynamic::Level::from_int(level), keyword);
+        return if let Some(s) = es { s.enabled() } else { false };
     }
 
     #[inline(always)]
     fn supports_enable_callback() -> bool {
-        true
+        false
     }
 
     fn span_start<'a, 'b, R>(
@@ -183,38 +199,44 @@ impl crate::native::EventWriter for CommonSchemaProvider {
             span_id.assume_init()
         };
 
+        let es = if let Some(es) = self.find_set(level.into(), keyword) {
+            es
+        } else {
+            self.register_set(level.into(), keyword)
+        };
+
         EBW.with(|eb| {
             let mut eb = eb.borrow_mut();
 
-            eb.reset(span_name, level.into(), keyword, event_tag);
+            eb.reset(span_name, event_tag as u16);
             eb.opcode(Opcode::Info);
 
             // Promoting values from PartC to PartA extensions is apparently just a draft spec
             // and not necessary / supported by consumers.
             // let exts = json::extract_common_schema_parta_exts(attributes);
 
-            eb.add_u16("__csver__", 0x0401, OutType::Signed, 0);
+            eb.add_value("__csver__", 0x0401, FieldFormat::SignedInt, 0);
             eb.add_struct("PartA", 2 /* + exts.len() as u8*/, 0);
             {
                 let time: String =
                     chrono::DateTime::to_rfc3339(&chrono::DateTime::<chrono::Utc>::from(timestamp));
-                eb.add_str8("time", time, OutType::Utf8, 0);
+                eb.add_str("time", time, FieldFormat::Default, 0);
 
                 eb.add_struct("ext_dt", 2, 0);
                 {
-                    eb.add_str8("traceId", "", OutType::Utf8, 0); // TODO
-                    eb.add_str8("spanId", &span_id, OutType::Utf8, 0);
+                    eb.add_str("traceId", "", FieldFormat::Default, 0); // TODO
+                    eb.add_str("spanId", &span_id, FieldFormat::Default, 0);
                 }
             }
 
             // if !span_data.links.is_empty() {
             //     self.add_struct("PartB", 5, 0);
             //     {
-            //         self.add_str8("_typeName", "SpanLink", OutType::Utf8, 0);
-            //         self.add_str8("fromTraceId", &traceId, OutType::Utf8, 0);
-            //         self.add_str8("fromSpanId", &spanId, OutType::Utf8, 0);
-            //         self.add_str8("toTraceId", "SpanLink", OutType::Utf8, 0);
-            //         self.add_str8("toSpanId", "SpanLink", OutType::Utf8, 0);
+            //         self.add_str8("_typeName", "SpanLink", FieldFormat::Default, 0);
+            //         self.add_str8("fromTraceId", &traceId, FieldFormat::Default, 0);
+            //         self.add_str8("fromSpanId", &spanId, FieldFormat::Default, 0);
+            //         self.add_str8("toTraceId", "SpanLink", FieldFormat::Default, 0);
+            //         self.add_str8("toSpanId", "SpanLink", FieldFormat::Default, 0);
             //     }
             // }
 
@@ -223,7 +245,7 @@ impl crate::native::EventWriter for CommonSchemaProvider {
 
             eb.add_struct("PartB", partb_field_count, 0);
             {
-                eb.add_str8("_typeName", "Span", OutType::Utf8, 0);
+                eb.add_str("_typeName", "Span", FieldFormat::Default, 0);
 
                 if let Some(parent) = span_parent {
                     let parent_span_id = unsafe {
@@ -233,18 +255,18 @@ impl crate::native::EventWriter for CommonSchemaProvider {
                         span_id.assume_init()
                     };
 
-                    eb.add_str8("parentId", &parent_span_id, OutType::Utf8, 0);
+                    eb.add_str("parentId", &parent_span_id, FieldFormat::Default, 0);
                 }
 
-                eb.add_str8("name", span_name, OutType::Utf8, 0);
+                eb.add_str("name", span_name, FieldFormat::Default, 0);
 
                 // TODO
-                eb.add_str8(
+                eb.add_str(
                     "startTime",
                     &chrono::DateTime::to_rfc3339(&chrono::DateTime::<chrono::Utc>::from(
                         timestamp,
                     )),
-                    OutType::Utf8,
+                    FieldFormat::Default,
                     0,
                 );
             }
@@ -268,7 +290,7 @@ impl crate::native::EventWriter for CommonSchemaProvider {
                 }
             }
 
-            let _ = eb.write(&self.get_provider(), None, None);
+            let _ = eb.write(&es, None, None);
         });
     }
 
@@ -282,22 +304,28 @@ impl crate::native::EventWriter for CommonSchemaProvider {
         keyword: u64,
         event: &tracing::Event<'_>,
     ) {
+        let es = if let Some(es) = self.find_set(level.into(), keyword) {
+            es
+        } else {
+            self.register_set(level.into(), keyword)
+        };
+
         EBW.with(|eb| {
             let mut eb = eb.borrow_mut();
 
-            eb.reset(event_name, level.into(), keyword, 0);
+            eb.reset(event_name, 0);
             eb.opcode(Opcode::Info);
 
             // Promoting values from PartC to PartA extensions is apparently just a draft spec
             // and not necessary / supported by consumers.
             // let exts = json::extract_common_schema_parta_exts(attributes);
 
-            eb.add_u16("__csver__", 0x0401, OutType::Signed, 0);
+            eb.add_value("__csver__", 0x0401, FieldFormat::SignedInt, 0);
             eb.add_struct("PartA", 2 /* + exts.len() as u8*/, 0);
             {
                 let time: String =
                     chrono::DateTime::to_rfc3339(&chrono::DateTime::<chrono::Utc>::from(timestamp));
-                eb.add_str8("time", time, OutType::Utf8, 0);
+                eb.add_str("time", time, FieldFormat::Default, 0);
 
                 if current_span != 0 {
                     eb.add_struct("ext_dt", 2, 0);
@@ -309,23 +337,23 @@ impl crate::native::EventWriter for CommonSchemaProvider {
                             span_id.assume_init()
                         };
 
-                        eb.add_str8("traceId", "", OutType::Utf8, 0); // TODO
-                        eb.add_str8("spanId", &span_id, OutType::Utf8, 0);
+                        eb.add_str("traceId", "", FieldFormat::Default, 0); // TODO
+                        eb.add_str("spanId", &span_id, FieldFormat::Default, 0);
                     }
                 }
             }
 
             eb.add_struct("PartB", 3, 0);
             {
-                eb.add_str8("_typeName", "Log", OutType::Utf8, 0);
-                eb.add_str8("name", event_name, OutType::Utf8, 0);
+                eb.add_str("_typeName", "Log", FieldFormat::Default, 0);
+                eb.add_str("name", event_name, FieldFormat::Default, 0);
 
-                eb.add_str8(
+                eb.add_str(
                     "eventTime",
                     &chrono::DateTime::to_rfc3339(&chrono::DateTime::<chrono::Utc>::from(
                         timestamp,
                     )),
-                    OutType::Utf8,
+                    FieldFormat::Default,
                     0,
                 );
             }
@@ -338,7 +366,7 @@ impl crate::native::EventWriter for CommonSchemaProvider {
                 event.record(&mut visitor);
             }
 
-            let _ = eb.write(&self.get_provider(), None, None);
+            let _ = eb.write(&es, None, None);
         });
     }
 }
