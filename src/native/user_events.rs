@@ -121,10 +121,7 @@ impl ProviderWrapper {
         );
 
         Arc::pin(ProviderWrapper {
-            provider: std::sync::RwLock::new(eventheader_dynamic::Provider::new(
-                provider_name,
-                &options,
-            )),
+            provider: std::sync::RwLock::new(provider),
         })
     }
 
