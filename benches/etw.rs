@@ -1,10 +1,12 @@
+#![allow(unused_imports, dead_code)]
+
 use criterion::{criterion_group, criterion_main, Criterion};
 use etw_helpers::{FileMode, SessionBuilder};
 use tracing::{event, span, Level};
 use tracing_etw::*;
 use tracing_subscriber::{self, prelude::*};
 
-#[cfg(all(target_os = "windows"))]
+#[cfg(target_os = "windows")]
 pub fn etw_benchmark(c: &mut Criterion) {
     let builder = EtwLayerBuilder::new("etw_bench");
     let provider_id = builder.get_provider_id().to_u128();
@@ -105,6 +107,9 @@ pub fn etw_benchmark(c: &mut Criterion) {
         });
     }
 }
+
+#[cfg(not(target_os = "windows"))]
+pub fn etw_benchmark(_c: &mut Criterion) {}
 
 criterion_group!(benches, etw_benchmark);
 criterion_main!(benches);
