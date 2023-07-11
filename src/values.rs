@@ -3,11 +3,10 @@ use std::fmt::Write;
 
 use tracing::field;
 
-use crate::native::EventBuilderWrapper;
-
 #[allow(non_camel_case_types)]
 #[derive(Default, Clone)]
-pub(crate) enum ValueTypes {
+#[doc(hidden)]
+pub enum ValueTypes {
     #[default]
     None,
     v_u64(u64),
@@ -144,11 +143,21 @@ impl<'a> field::Visit for ValueVisitor<'a> {
     fn record_error(&mut self, _field: &field::Field, _value: &(dyn std::error::Error + 'static)) {}
 }
 
-pub(crate) trait AddFieldAndValue {
+pub(crate) trait AddFieldAndValue<T> {
     fn add_field_value(&mut self, fv: &crate::values::FieldAndValue);
 }
 
-impl<'a> field::Visit for EventBuilderWrapper<'a> {
+pub(crate) struct VisitorWrapper<T> {
+    wrapped: T
+}
+
+impl<T> From<T> for VisitorWrapper<T> where T: AddFieldAndValue<T> {
+    fn from(value: T) -> Self {
+        VisitorWrapper { wrapped: value }
+    }
+}
+
+impl<T> field::Visit for VisitorWrapper<T> where T: AddFieldAndValue<T> {
     fn record_debug(&mut self, field: &field::Field, value: &dyn std::fmt::Debug) {
         let mut string = String::with_capacity(10);
         if write!(string, "{:?}", value).is_err() {
@@ -156,56 +165,56 @@ impl<'a> field::Visit for EventBuilderWrapper<'a> {
             return;
         }
 
-        self.add_field_value(&FieldAndValue {
+        self.wrapped.add_field_value(&FieldAndValue {
             field_name: field.name(),
             value: &ValueTypes::from(string),
         })
     }
 
     fn record_f64(&mut self, field: &field::Field, value: f64) {
-        self.add_field_value(&FieldAndValue {
+        self.wrapped.add_field_value(&FieldAndValue {
             field_name: field.name(),
             value: &ValueTypes::from(value),
         })
     }
 
     fn record_i64(&mut self, field: &field::Field, value: i64) {
-        self.add_field_value(&FieldAndValue {
+        self.wrapped.add_field_value(&FieldAndValue {
             field_name: field.name(),
             value: &ValueTypes::from(value),
         })
     }
 
     fn record_u64(&mut self, field: &field::Field, value: u64) {
-        self.add_field_value(&FieldAndValue {
+        self.wrapped.add_field_value(&FieldAndValue {
             field_name: field.name(),
             value: &ValueTypes::from(value),
         })
     }
 
     fn record_i128(&mut self, field: &field::Field, value: i128) {
-        self.add_field_value(&FieldAndValue {
+        self.wrapped.add_field_value(&FieldAndValue {
             field_name: field.name(),
             value: &ValueTypes::from(value),
         })
     }
 
     fn record_u128(&mut self, field: &field::Field, value: u128) {
-        self.add_field_value(&FieldAndValue {
+        self.wrapped.add_field_value(&FieldAndValue {
             field_name: field.name(),
             value: &ValueTypes::from(value),
         })
     }
 
     fn record_bool(&mut self, field: &field::Field, value: bool) {
-        self.add_field_value(&FieldAndValue {
+        self.wrapped.add_field_value(&FieldAndValue {
             field_name: field.name(),
             value: &ValueTypes::from(value),
         })
     }
 
     fn record_str(&mut self, field: &field::Field, value: &str) {
-        self.add_field_value(&FieldAndValue {
+        self.wrapped.add_field_value(&FieldAndValue {
             field_name: field.name(),
             value: &ValueTypes::from(value.to_string()),
         })

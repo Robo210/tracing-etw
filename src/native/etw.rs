@@ -32,11 +32,17 @@ impl From<std::time::SystemTime> for Win32SystemTime {
     }
 }
 
-pub(crate) struct EventBuilderWrapper<'a> {
+pub(crate) struct PayloadFieldVisitor<'a> {
     pub(crate) eb: &'a mut tracelogging_dynamic::EventBuilder,
 }
 
-impl AddFieldAndValue for EventBuilderWrapper<'_> {
+impl<'a> PayloadFieldVisitor<'a> {
+    fn make_visitor(eb: &'a mut tracelogging_dynamic::EventBuilder) -> VisitorWrapper<PayloadFieldVisitor<'a>> {
+        VisitorWrapper::from(PayloadFieldVisitor { eb })
+    }
+}
+
+impl<T> AddFieldAndValue<T> for PayloadFieldVisitor<'_> {
     fn add_field_value(&mut self, fv: &FieldAndValue) {
         match fv.value {
             ValueTypes::None => (),
@@ -74,7 +80,8 @@ impl AddFieldAndValue for EventBuilderWrapper<'_> {
     }
 }
 
-pub(crate) struct ProviderWrapper {
+#[doc(hidden)]
+pub struct Provider {
     provider: tracelogging_dynamic::Provider,
 }
 
@@ -90,13 +97,20 @@ fn callback_fn(
         tracing::callsite::rebuild_interest_cache();
 }
 
-impl ProviderWrapper {
-    pub(crate) fn new(
+impl Provider {
+    #[inline(always)]
+    fn get_provider(self: Pin<&Self>) -> Pin<&tracelogging_dynamic::Provider> {
+        unsafe { self.map_unchecked(|s| &s.provider) }
+    }
+}
+
+impl super::EventWriter for Provider {
+    fn new<G>(
         provider_name: &str,
-        provider_id: &tracelogging::Guid,
+        provider_id: &G,
         provider_group: &ProviderGroup,
         _default_keyword: u64,
-    ) -> Pin<Arc<Self>> {
+    ) -> Pin<Arc<Self>> where for <'a> &'a G: Into<crate::native::GuidWrapper> {
         let mut options = tracelogging_dynamic::Provider::options();
         if let ProviderGroup::Windows(guid) = provider_group {
             options.group_id(guid);
@@ -104,11 +118,11 @@ impl ProviderWrapper {
 
         options.callback(callback_fn, 0);
 
-        let wrapper = Arc::pin(ProviderWrapper {
+        let wrapper = Arc::pin(Self {
             provider: tracelogging_dynamic::Provider::new_with_id(
                 provider_name,
                 &options,
-                provider_id,
+                &provider_id.into().into(),
             ),
         });
         unsafe {
@@ -119,22 +133,17 @@ impl ProviderWrapper {
     }
 
     #[inline]
-    pub(crate) fn enabled(&self, level: u8, keyword: u64) -> bool {
+    fn enabled(&self, level: u8, keyword: u64) -> bool {
         self.provider
             .enabled(tracelogging::Level::from_int(level), keyword)
     }
 
     #[inline(always)]
-    pub(crate) const fn supports_enable_callback() -> bool {
+    fn supports_enable_callback() -> bool {
         true
     }
 
-    #[inline(always)]
-    fn get_provider(self: Pin<&Self>) -> Pin<&tracelogging_dynamic::Provider> {
-        unsafe { self.map_unchecked(|s| &s.provider) }
-    }
-
-    pub(crate) fn span_start<'a, 'b, R>(
+    fn span_start<'a, 'b, R>(
         self: Pin<&Self>,
         span: &'b SpanRef<'a, R>,
         timestamp: SystemTime,
@@ -163,10 +172,10 @@ impl ProviderWrapper {
                 0,
             );
 
-            let mut ebw = EventBuilderWrapper { eb: eb.deref_mut() };
+            let mut pfv = PayloadFieldVisitor { eb: eb.deref_mut() };
 
             for (f, v) in fields.iter().zip(values.iter()) {
-                ebw.add_field_value(&FieldAndValue {
+                <PayloadFieldVisitor<'_> as AddFieldAndValue<PayloadFieldVisitor<'_>>>::add_field_value(&mut pfv, &FieldAndValue {
                     field_name: f,
                     value: v,
                 });
@@ -190,7 +199,7 @@ impl ProviderWrapper {
         });
     }
 
-    pub(crate) fn span_stop<'a, 'b, R>(
+    fn span_stop<'a, 'b, R>(
         self: Pin<&Self>,
         span: &'b SpanRef<'a, R>,
         timestamp: SystemTime,
@@ -219,10 +228,10 @@ impl ProviderWrapper {
                 0,
             );
 
-            let mut ebw = EventBuilderWrapper { eb: eb.deref_mut() };
+            let mut pfv = PayloadFieldVisitor { eb: eb.deref_mut() };
 
             for (f, v) in fields.iter().zip(values.iter()) {
-                ebw.add_field_value(&FieldAndValue {
+                <PayloadFieldVisitor<'_> as AddFieldAndValue<PayloadFieldVisitor<'_>>>::add_field_value(&mut pfv, &FieldAndValue {
                     field_name: f,
                     value: v,
                 });
@@ -246,16 +255,34 @@ impl ProviderWrapper {
         });
     }
 
-    pub(crate) fn write_record(
+    fn write_record(
         self: Pin<&Self>,
         timestamp: SystemTime,
-        activity_id: &[u8; 16],
-        related_activity_id: &[u8; 16],
+        current_span: u64,
+        parent_span: u64,
         event_name: &str,
         level: u8,
         keyword: u64,
         event: &tracing::Event<'_>,
     ) {
+        let mut activity_id: [u8; 16] = [0; 16];
+        activity_id[0] = if current_span != 0 {
+            let (_, half) = activity_id.split_at_mut(8);
+            half.copy_from_slice(&current_span.to_le_bytes());
+            1
+        } else {
+            0
+        };
+
+        let mut related_activity_id: [u8; 16] = [0; 16];
+        related_activity_id[0] = if parent_span != 0 {
+            let (_, half) = related_activity_id.split_at_mut(8);
+            half.copy_from_slice(&parent_span.to_le_bytes());
+            1
+        } else {
+            0
+        };
+
         EBW.with(|eb| {
             let mut eb = eb.borrow_mut();
 
@@ -269,10 +296,11 @@ impl ProviderWrapper {
                 0,
             );
 
-            event.record(&mut EventBuilderWrapper { eb: eb.deref_mut() });
+            let mut visitor = PayloadFieldVisitor::make_visitor(eb.deref_mut());
+            event.record(&mut visitor);
 
-            let act = tracelogging_dynamic::Guid::from_bytes_le(activity_id);
-            let related = tracelogging_dynamic::Guid::from_bytes_le(related_activity_id);
+            let act = tracelogging_dynamic::Guid::from_bytes_le(&activity_id);
+            let related = tracelogging_dynamic::Guid::from_bytes_le(&related_activity_id);
             let _ = eb.write(
                 &self.get_provider(),
                 if activity_id[0] != 0 {

@@ -8,7 +8,7 @@ use tracing_subscriber::{self, prelude::*};
 
 #[cfg(target_os = "windows")]
 pub fn etw_benchmark(c: &mut Criterion) {
-    let builder = EtwLayerBuilder::new("etw_bench");
+    let builder = LayerBuilder::new("etw_bench");
     let provider_id = builder.get_provider_id().to_u128();
     let _subscriber = tracing_subscriber::registry().with(builder.build_with_layer_filter()).init();
 

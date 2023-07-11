@@ -1,25 +1,29 @@
 #[cfg(target_os = "windows")]
-mod etw;
+#[doc(hidden)]
+pub mod etw;
 #[cfg(target_os = "windows")]
-pub(crate) use etw::EventBuilderWrapper;
-#[cfg(target_os = "windows")]
-pub(crate) use etw::ProviderWrapper;
+#[doc(hidden)]
+pub use etw::Provider;
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-mod noop;
+#[doc(hidden)]
+pub mod noop;
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-pub(crate) use noop::EventBuilderWrapper;
-#[cfg(not(any(target_os = "windows", target_os = "linux")))]
-pub(crate) use noop::ProviderWrapper;
+#[doc(hidden)]
+pub use noop::Provider;
 
 #[cfg(target_os = "linux")]
-mod user_events;
+#[doc(hidden)]
+pub mod user_events;
 #[cfg(target_os = "linux")]
-pub(crate) use user_events::EventBuilderWrapper;
-#[cfg(target_os = "linux")]
-pub(crate) use user_events::ProviderWrapper;
+#[doc(hidden)]
+pub use user_events::Provider;
 
-pub(crate) struct GuidWrapper(u128);
+#[cfg(feature = "common_schema")]
+pub(crate) mod common_schema;
+
+#[doc(hidden)]
+pub struct GuidWrapper(u128);
 
 impl From<&tracelogging::Guid> for GuidWrapper {
     fn from(value: &tracelogging::Guid) -> Self {
@@ -46,10 +50,72 @@ impl From<GuidWrapper> for eventheader::Guid {
 }
 
 #[derive(Clone)]
-pub(crate) enum ProviderGroup {
+#[doc(hidden)]
+pub enum ProviderGroup {
     Unset,
     #[allow(dead_code)]
     Windows(tracelogging::Guid),
     #[allow(dead_code)]
     Linux(std::borrow::Cow<'static, str>),
 }
+
+#[doc(hidden)]
+pub trait EventWriter {
+    fn new<G> (
+        provider_name: &str,
+        provider_id: &G,
+        provider_group: &ProviderGroup,
+        _default_keyword: u64,
+    ) -> std::pin::Pin<std::sync::Arc<Self>> where for <'a> &'a G: Into<GuidWrapper>;
+
+    fn enabled(&self, level: u8, keyword: u64) -> bool;
+
+    fn supports_enable_callback() -> bool;
+
+    fn span_start<'a, 'b, R>(
+        self: std::pin::Pin<&Self>,
+        span: &'b tracing_subscriber::registry::SpanRef<'a, R>,
+        timestamp: std::time::SystemTime,
+        activity_id: &[u8; 16],
+        related_activity_id: &[u8; 16],
+        fields: &'b [&'static str],
+        values: &'b [crate::values::ValueTypes],
+        level: u8,
+        keyword: u64,
+        event_tag: u32,
+    ) where
+        R: tracing_subscriber::registry::LookupSpan<'a>;
+
+    fn span_stop<'a, 'b, R>(
+        self: std::pin::Pin<&Self>,
+        span: &'b tracing_subscriber::registry::SpanRef<'a, R>,
+        timestamp: std::time::SystemTime,
+        activity_id: &[u8; 16],
+        related_activity_id: &[u8; 16],
+        fields: &'b [&'static str],
+        values: &'b [crate::values::ValueTypes],
+        level: u8,
+        keyword: u64,
+        event_tag: u32,
+    ) where
+        R: tracing_subscriber::registry::LookupSpan<'a>;
+
+    fn write_record(
+        self: std::pin::Pin<&Self>,
+        timestamp: std::time::SystemTime,
+        current_span: u64,
+        parent_span: u64,
+        event_name: &str,
+        level: u8,
+        keyword: u64,
+        event: &tracing::Event<'_>,
+    );
+}
+
+#[doc(hidden)]
+pub trait EventMode {
+    type Provider;
+}
+
+#[doc(hidden)]
+impl EventMode for Provider { type Provider = Provider;}

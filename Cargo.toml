@@ -14,7 +14,8 @@ crate-type = ["rlib"]
 [features]
 unsafe = []
 global_filter = []
-default = []
+common_schema = []
+default = ["common_schema"]
 
 [dependencies]
 tracing = {version = "0.1", default-features = false, features = ["std"]}

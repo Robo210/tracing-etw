@@ -10,14 +10,15 @@ pub(crate) struct EventBuilderWrapper<'a> {
     _p: core::marker::PhantomData<&'a u8>,
 }
 
-impl AddFieldAndValue for EventBuilderWrapper<'_> {
+impl<T> AddFieldAndValue<T> for EventBuilderWrapper<'_> {
     fn add_field_value(&mut self, _fv: &FieldAndValue) {}
 }
 
-pub(crate) struct ProviderWrapper;
+#[doc(hidden)]
+pub struct Provider;
 
-impl ProviderWrapper {
-    pub(crate) fn new(
+impl crate::native::EventWriter for Provider {
+    fn new(
         _provider_name: &str,
         _provider_id: &tracelogging::Guid,
         _provider_group: &ProviderGroup,
@@ -27,16 +28,16 @@ impl ProviderWrapper {
     }
 
     #[inline(always)]
-    pub(crate) fn enabled(&self, _level: u8, _keyword: u64) -> bool {
+    fn enabled(&self, _level: u8, _keyword: u64) -> bool {
         false
     }
 
     #[inline(always)]
-    pub(crate) const fn supports_enable_callback() -> bool {
+    fn supports_enable_callback() -> bool {
         false
     }
 
-    pub(crate) fn span_start<'a, 'b, R>(
+    fn span_start<'a, 'b, R>(
         self: Pin<&Self>,
         _span: &'b SpanRef<'a, R>,
         _timestamp: SystemTime,
@@ -52,7 +53,7 @@ impl ProviderWrapper {
     {
     }
 
-    pub(crate) fn span_stop<'a, 'b, R>(
+    fn span_stop<'a, 'b, R>(
         self: Pin<&Self>,
         _span: &'b SpanRef<'a, R>,
         _timestamp: SystemTime,
@@ -68,11 +69,11 @@ impl ProviderWrapper {
     {
     }
 
-    pub(crate) fn write_record(
+    fn write_record(
         self: Pin<&Self>,
         _timestamp: SystemTime,
-        _activity_id: &[u8; 16],
-        _related_activity_id: &[u8; 16],
+        _current_span: u64,
+        _parent_span: u64,
         _event_name: &str,
         _level: u8,
         _keyword: u64,

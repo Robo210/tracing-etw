@@ -7,8 +7,9 @@ use tracing_subscriber::filter::Filtered;
 use tracing_subscriber::layer::Filter;
 use tracing_subscriber::{registry::LookupSpan, Layer};
 
+use crate::native::{EventWriter, EventMode};
 use crate::values::*;
-use crate::{map_level, native::*};
+use crate::{map_level, native};
 
 // This version of the struct is packed such that all the fields are references into a single,
 // contiguous allocation. The first byte of the allocation is `layout`.
@@ -48,25 +49,48 @@ struct EtwLayerData {
     related_activity_id: [u8; 16], // if set, byte 0 is 1 and 64-bit span ID in the lower 8 bytes
 }
 
-pub struct EtwLayerBuilder {
+#[doc(hidden)]
+pub struct EtwLayerBuilder<Mode> {
     pub(crate) provider_name: String,
     pub(crate) provider_id: tracelogging::Guid,
-    pub(crate) provider_group: ProviderGroup,
-    pub(crate) emit_common_schema_events: bool,
+    pub(crate) provider_group: native::ProviderGroup,
     pub(crate) default_keyword: u64,
+    _m: PhantomData<Mode>,
 }
 
-impl EtwLayerBuilder {
-    pub fn new(name: &str) -> Self {
-        EtwLayerBuilder {
+pub struct LayerBuilder {}
+
+impl LayerBuilder {
+    pub fn new(name: &str) -> EtwLayerBuilder<native::Provider> {
+        EtwLayerBuilder::<native::Provider> {
             provider_name: name.to_owned(),
             provider_id: Guid::from_name(name),
-            provider_group: ProviderGroup::Unset,
-            emit_common_schema_events: false,
+            provider_group: native::ProviderGroup::Unset,
             default_keyword: 1,
+            _m: PhantomData,
         }
     }
 
+    /// For advanced scenarios.
+    /// Emit events that follow the Common Schema 4.0 mapping.
+    /// Recommended only for compatibility with specialized event consumers.
+    /// Most ETW consumers will not benefit from events in this schema, and
+    /// may perform worse. Common Schema events are much slower to generate
+    /// and should not be enabled unless absolutely necessary.
+    #[cfg(feature = "common_schema")]
+    pub fn new_common_schema_events(name: &str) -> EtwLayerBuilder<native::common_schema::Provider> {
+        EtwLayerBuilder::<native::common_schema::Provider> {
+            provider_name: name.to_owned(),
+            provider_id: Guid::from_name(name),
+            provider_group: native::ProviderGroup::Unset,
+            default_keyword: 1,
+            _m: PhantomData,
+        }
+    }
+}
+
+impl<Mode> EtwLayerBuilder<Mode> 
+where Mode : EventMode {
     /// For advanced scenarios.
     /// Assign a provider ID to the ETW provider rather than use
     /// one generated from the provider name.
@@ -88,24 +112,10 @@ impl EtwLayerBuilder {
     }
 
     /// For advanced scenarios.
-    /// Emit extra events that follow the Common Schema 4.0 mapping.
-    /// Recommended only for compatibility with specialized event consumers.
-    /// Most ETW consumers will not benefit from events in this schema, and
-    /// may perform worse.
-    /// These events are emitted in addition to the normal ETW events,
-    /// unless `without_realtime_events` is also called.
-    /// Common Schema events are much slower to generate and should not be enabled
-    /// unless absolutely necessary.
-    pub fn with_common_schema_events(mut self) -> Self {
-        self.emit_common_schema_events = true;
-        self
-    }
-
-    /// For advanced scenarios.
     /// Set the ETW provider group to join this provider to.
     #[cfg(any(target_os = "windows", doc))]
     pub fn with_provider_group(mut self, group_id: tracelogging::Guid) -> Self {
-        self.provider_group = ProviderGroup::Windows(group_id);
+        self.provider_group = native::ProviderGroup::Windows(group_id);
         self
     }
 
@@ -119,11 +129,11 @@ impl EtwLayerBuilder {
 
     fn validate_config(&self) {
         match &self.provider_group {
-            ProviderGroup::Unset => (),
-            ProviderGroup::Windows(guid) => {
+            native::ProviderGroup::Unset => (),
+            native::ProviderGroup::Windows(guid) => {
                 assert_ne!(guid, &Guid::zero(), "Provider GUID must not be zeroes");
             }
-            ProviderGroup::Linux(name) => {
+            native::ProviderGroup::Linux(name) => {
                 assert!(
                     eventheader_dynamic::ProviderOptions::is_valid_option_value(name),
                     "Provider names must be lower case ASCII or numeric digits"
@@ -143,28 +153,32 @@ impl EtwLayerBuilder {
     }
 
     #[cfg(feature = "global_filter")]
-    pub fn build_with_global_filter(self) -> EtwLayer<Registry> {
+    pub fn build_with_global_filter<S>(self) -> EtwLayer<S, Mode>
+    where S: Subscriber + for<'a> LookupSpan<'a> {
         self.validate_config();
 
-        EtwLayer {
-            provider: ProviderWrapper::new(
+        EtwLayer::<S, native::Provider> {
+            provider: native::Provider::new(
                 &self.provider_name,
-                &GuidWrapper::from(&self.provider_id).into(),
+                &self.provider_id,
                 &self.provider_group,
+                self.default_keyword,
             ),
+            default_keyword: self.default_keyword,
             _p: PhantomData
         }
     }
 
-    //#[cfg(not(feature = "global_filter"))]
-    pub fn build_with_layer_filter<S>(self) -> Filtered<EtwLayer<S>, EtwFilter<S>, S>
-    where S: Subscriber + for<'a> LookupSpan<'a> {
+    #[cfg(not(feature = "global_filter"))]
+    pub fn build_with_layer_filter<S>(self) -> Filtered<EtwLayer<S, Mode::Provider>, EtwFilter<S, Mode::Provider>, S>
+    where S: Subscriber + for<'a> LookupSpan<'a>,
+          Mode::Provider : EventWriter + 'static {
         self.validate_config();
 
-        let layer = EtwLayer::<S> {
-            provider: ProviderWrapper::new(
+        let layer = EtwLayer::<S, Mode::Provider> {
+            provider: Mode::Provider::new(
                 &self.provider_name,
-                &GuidWrapper::from(&self.provider_id).into(),
+                &self.provider_id,
                 &self.provider_group,
                 self.default_keyword,
             ),
@@ -172,7 +186,7 @@ impl EtwLayerBuilder {
             _p: PhantomData
         };
 
-        let filter = EtwFilter::<S> {
+        let filter = EtwFilter::<S, _> {
             provider: layer.provider.clone(),
             default_keyword: self.default_keyword,
             _p: PhantomData
@@ -182,18 +196,19 @@ impl EtwLayerBuilder {
     }
 }
 
-pub struct EtwFilter<S> {
-    provider: Pin<Arc<ProviderWrapper>>,
+pub struct EtwFilter<S, P> {
+    provider: Pin<Arc<P>>,
     default_keyword: u64,
     _p: PhantomData<S>,
 }
 
-impl<S> Filter<S> for EtwFilter<S>
+impl<S, P> Filter<S> for EtwFilter<S, P>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
+    P: EventWriter + 'static
 {
     fn callsite_enabled(&self, metadata: &'static tracing::Metadata<'static>) -> tracing::subscriber::Interest {
-        if ProviderWrapper::supports_enable_callback() {
+        if P::supports_enable_callback() {
             if self.provider.enabled(map_level(metadata.level()), self.default_keyword) {
                 tracing::subscriber::Interest::always()
             } else {
@@ -215,15 +230,16 @@ where
     }
 }
 
-pub struct EtwLayer<S> {
-    provider: Pin<Arc<ProviderWrapper>>,
+pub struct EtwLayer<S, P> {
+    provider: Pin<Arc<P>>,
     default_keyword: u64,
     _p: PhantomData<S>,
 }
 
-impl<S> Layer<S> for EtwLayer<S>
+impl<S, P> Layer<S> for EtwLayer<S, P>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
+    P: EventWriter + 'static
 {
     fn on_register_dispatch(&self, _collector: &tracing::Dispatch) {
         // Late init when the layer is installed as a subscriber 
@@ -280,28 +296,10 @@ where
             .event_span(event)
             .map_or(0, |evt| evt.parent().map_or(0, |p| p.id().into_u64()));
 
-        let mut activity_id: [u8; 16] = [0; 16];
-        activity_id[0] = if current_span != 0 {
-            let (_, half) = activity_id.split_at_mut(8);
-            half.copy_from_slice(&current_span.to_le_bytes());
-            1
-        } else {
-            0
-        };
-
-        let mut related_activity_id: [u8; 16] = [0; 16];
-        related_activity_id[0] = if parent_span != 0 {
-            let (_, half) = related_activity_id.split_at_mut(8);
-            half.copy_from_slice(&parent_span.to_le_bytes());
-            1
-        } else {
-            0
-        };
-
         self.provider.as_ref().write_record(
             timestamp,
-            &activity_id,
-            &related_activity_id,
+            current_span,
+            parent_span,
             event.metadata().name(),
             map_level(event.metadata().level()),
             self.default_keyword,
