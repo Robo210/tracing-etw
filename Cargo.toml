@@ -22,8 +22,8 @@ tracing = {version = "0.1", default-features = false, features = ["std"]}
 tracing-subscriber = {version="0.3", default-features = false, features=["std", "fmt", "registry"]}
 tracelogging = ">= 1.1.0"
 tracelogging_dynamic = ">= 1.1.0"
-eventheader = "0.2"
-eventheader_dynamic = "0.2"
+eventheader = "0.3.1"
+eventheader_dynamic = "0.3.1"
 chrono = {version="0.4", default-features = false, features=["std"]}
 
 [dev-dependencies]

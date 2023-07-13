@@ -7,9 +7,9 @@ use tracing_subscriber::{self, prelude::*};
 
 #[cfg(target_os = "linux")]
 pub fn user_events_benchmark(c: &mut Criterion) {
-    let builder = EtwLayerBuilder::new("user_events_bench");
+    let builder = LayerBuilder::new("user_events_bench");
     let _subscriber = tracing_subscriber::registry()
-        .with(builder.build_with_layer_filter())
+        .with(builder.build())
         .init();
 
     // Disabled provider

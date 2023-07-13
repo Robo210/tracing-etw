@@ -3,9 +3,12 @@ use std::{pin::Pin, sync::Arc};
 
 use tracelogging::Guid;
 use tracing::{span, Subscriber};
-use tracing_subscriber::filter::Filtered;
+use tracing_subscriber::filter::{Filtered, FilterExt, Targets, combinator::And};
 use tracing_subscriber::layer::Filter;
 use tracing_subscriber::{registry::LookupSpan, Layer};
+use tracing::metadata::LevelFilter;
+
+use crate::native::ProviderGroup;
 
 use crate::native::{EventMode, EventWriter};
 use crate::values::*;
@@ -157,7 +160,7 @@ where
     }
 
     #[cfg(feature = "global_filter")]
-    pub fn build_with_global_filter<S>(self) -> EtwLayer<S, Mode>
+    pub fn build<S>(self) -> EtwLayer<S, Mode>
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
@@ -175,17 +178,30 @@ where
         }
     }
 
-    #[cfg(not(feature = "global_filter"))]
-    pub fn build_with_layer_filter<S>(
-        self,
-    ) -> Filtered<EtwLayer<S, Mode::Provider>, EtwFilter<S, Mode::Provider>, S>
+    fn build_target_filter(&self, target: &'static str,) -> Targets {
+        let mut targets = Targets::new().with_target(&self.provider_name, LevelFilter::TRACE);
+
+        match self.provider_group {
+            ProviderGroup::Windows(_guid) => {},
+            ProviderGroup::Linux(ref name) => {
+                targets = targets.with_target(name.clone(), LevelFilter::TRACE);
+            }
+            _ => {}
+        }
+
+        if !target.is_empty() {
+            targets = targets.with_target(target, LevelFilter::TRACE)
+        }
+
+        targets
+    }
+
+    fn build_layer<S>(&self) -> EtwLayer<S, Mode::Provider>
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
         Mode::Provider: EventWriter + 'static,
     {
-        self.validate_config();
-
-        let layer = EtwLayer::<S, Mode::Provider> {
+        EtwLayer::<S, Mode::Provider> {
             provider: Mode::Provider::new(
                 &self.provider_name,
                 &self.provider_id,
@@ -194,13 +210,54 @@ where
             ),
             default_keyword: self.default_keyword,
             _p: PhantomData,
-        };
+        }
+    }
 
-        let filter = EtwFilter::<S, _> {
-            provider: layer.provider.clone(),
+    fn build_filter<S, P>(&self, provider: Pin<Arc<P>>) -> EtwFilter<S, P>
+    where
+        S: Subscriber + for<'a> LookupSpan<'a>,
+        P: EventWriter + 'static,
+    {
+        EtwFilter::<S, _> {
+            provider,
             default_keyword: self.default_keyword,
             _p: PhantomData,
-        };
+        }
+    }
+
+    #[cfg(not(feature = "global_filter"))]
+    pub fn build_with_target<S>(
+        self,
+        target: &'static str,
+    ) -> Filtered<EtwLayer<S, Mode::Provider>, And<EtwFilter<S, Mode::Provider>, Targets, S>, S>
+    where
+        S: Subscriber + for<'a> LookupSpan<'a>,
+        Mode::Provider: EventWriter + 'static,
+    {
+        self.validate_config();
+
+        let layer = self.build_layer();
+
+        let filter = self.build_filter(layer.provider.clone());
+
+        let targets = self.build_target_filter(target);
+
+        layer.with_filter(filter.and(targets))
+    }
+
+    #[cfg(not(feature = "global_filter"))]
+    pub fn build<S>(
+        self
+    ) -> Filtered<EtwLayer<S, Mode::Provider>, EtwFilter<S, Mode::Provider>, S>
+    where
+        S: Subscriber + for<'a> LookupSpan<'a>,
+        Mode::Provider: EventWriter + 'static,
+    {
+        self.validate_config();
+
+        let layer = self.build_layer();
+
+        let filter = self.build_filter(layer.provider.clone());
 
         layer.with_filter(filter)
     }

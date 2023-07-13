@@ -8,8 +8,8 @@ fn main() {
     //     .without_time();
 
     let subscriber = tracing_subscriber::registry()
-        .with(LayerBuilder::new("test").build_with_layer_filter())
-        .with(LayerBuilder::new_common_schema_events("test2").build_with_layer_filter())
+        .with(LayerBuilder::new("test").build()) // Collects everything
+        .with(LayerBuilder::new_common_schema_events("test2").build_with_target("geneva"))
         .with(tracing_subscriber::fmt::layer().with_span_events(FmtSpan::ACTIVE));
     let _sub = subscriber.try_init();
 
@@ -39,4 +39,6 @@ fn main() {
 
     drop(_enter);
     drop(span);
+
+    event!(target: "geneva", Level::INFO, "Only for geneva!");
 }

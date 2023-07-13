@@ -1,6 +1,7 @@
 #![allow(unused_imports, dead_code)]
 
 use criterion::{criterion_group, criterion_main, Criterion};
+#[cfg(target_os = "windows")]
 use etw_helpers::{FileMode, SessionBuilder};
 use tracing::{event, span, Level};
 use tracing_etw::*;
@@ -11,7 +12,7 @@ pub fn etw_benchmark(c: &mut Criterion) {
     let builder = LayerBuilder::new("etw_bench");
     let provider_id = builder.get_provider_id().to_u128();
     let _subscriber = tracing_subscriber::registry()
-        .with(builder.build_with_layer_filter())
+        .with(builder.build())
         .init();
 
     let etw_session = SessionBuilder::new_file_mode(
