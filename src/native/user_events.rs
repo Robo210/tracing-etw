@@ -152,8 +152,7 @@ impl crate::native::EventWriter for Provider {
         timestamp: SystemTime,
         activity_id: &[u8; 16],
         related_activity_id: &[u8; 16],
-        fields: &'b [&'static str],
-        values: &'b [ValueTypes],
+        fields: &'b [crate::values::FieldValueIndex],
         level: u8,
         keyword: u64,
         event_tag: u32,
@@ -186,10 +185,10 @@ impl crate::native::EventWriter for Provider {
 
             let mut pfv = PayloadFieldVisitor { eb: eb.deref_mut() };
 
-            for (f, v) in fields.iter().zip(values.iter()) {
+            for f in fields {
                 <PayloadFieldVisitor<'_> as AddFieldAndValue<PayloadFieldVisitor<'_>>>::add_field_value(&mut pfv, &FieldAndValue {
-                    field_name: f,
-                    value: v,
+                    field_name: f.field,
+                    value: &f.value,
                 });
             }
 
@@ -212,11 +211,10 @@ impl crate::native::EventWriter for Provider {
     fn span_stop<'a, 'b, R>(
         self: Pin<&Self>,
         span: &'b SpanRef<'a, R>,
-        timestamp: SystemTime,
+        start_stop_times: (std::time::SystemTime, std::time::SystemTime),
         activity_id: &[u8; 16],
         related_activity_id: &[u8; 16],
-        fields: &'b [&'static str],
-        values: &'b [ValueTypes],
+        fields: &'b [crate::values::FieldValueIndex],
         level: u8,
         keyword: u64,
         event_tag: u32,
@@ -239,7 +237,7 @@ impl crate::native::EventWriter for Provider {
 
             eb.add_value(
                 "stop time",
-                timestamp
+                start_stop_times.1
                     .duration_since(std::time::SystemTime::UNIX_EPOCH)
                     .unwrap()
                     .as_secs(),
@@ -249,10 +247,10 @@ impl crate::native::EventWriter for Provider {
 
             let mut pfv = PayloadFieldVisitor { eb: eb.deref_mut() };
 
-            for (f, v) in fields.iter().zip(values.iter()) {
+            for f in fields {
                 <PayloadFieldVisitor<'_> as AddFieldAndValue<PayloadFieldVisitor<'_>>>::add_field_value(&mut pfv, &FieldAndValue {
-                    field_name: f,
-                    value: v,
+                    field_name: f.field,
+                    value: &f.value,
                 });
             }
 

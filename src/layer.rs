@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::time::SystemTime;
 use std::{pin::Pin, sync::Arc};
 
 use tracelogging::Guid;
@@ -14,42 +15,11 @@ use crate::native::{EventMode, EventWriter};
 use crate::values::*;
 use crate::{map_level, native};
 
-// This version of the struct is packed such that all the fields are references into a single,
-// contiguous allocation. The first byte of the allocation is `layout`.
-#[cfg(feature = "unsafe")]
-#[repr(C)]
 struct EtwLayerData {
-    fields: &'static [&'static str],
-    values: &'static mut [ValueTypes],
-    indexes: &'static mut [u8],
+    fields: Box<[FieldValueIndex]>,
     activity_id: [u8; 16], // // if set, byte 0 is 1 and 64-bit span ID in the lower 8 bytes
     related_activity_id: [u8; 16], // if set, byte 0 is 1 and 64-bit span ID in the lower 8 bytes
-    _p: std::ptr::NonNull<std::alloc::Layout>,
-}
-
-#[cfg(feature = "unsafe")]
-impl Drop for EtwLayerData {
-    fn drop(&mut self) {
-        unsafe { std::alloc::dealloc(self._p.as_ptr() as *mut u8, *self._p.as_ptr()) }
-    }
-}
-
-// Everything in the struct is Send + Sync except the ptr::NonNull.
-// We never deref the ptr::NonNull except in drop, for which safety comes from safe usage of the struct itself.
-// Therefore we can safely tag the whole thing as Send + Sync.
-#[cfg(feature = "unsafe")]
-unsafe impl Send for EtwLayerData {}
-#[cfg(feature = "unsafe")]
-unsafe impl Sync for EtwLayerData {}
-
-// This version of the struct uses only safe code, but has 3 separate heap allocations.
-#[cfg(not(feature = "unsafe"))]
-struct EtwLayerData {
-    fields: Box<[&'static str]>,
-    values: Box<[ValueTypes]>,
-    indexes: Box<[u8]>,
-    activity_id: [u8; 16], // // if set, byte 0 is 1 and 64-bit span ID in the lower 8 bytes
-    related_activity_id: [u8; 16], // if set, byte 0 is 1 and 64-bit span ID in the lower 8 bytes
+    start_time: SystemTime,
 }
 
 #[doc(hidden)]
@@ -421,68 +391,18 @@ where
 
         let n = metadata.fields().len();
 
-        // We want to pack the data that needs to be stored on the span as tightly as possible,
-        // in order to accommodate as many active spans as possible.
-        // This is off by default though, since unsafe code is unsafe.
-        #[cfg(feature = "unsafe")]
-        let mut data = unsafe {
-            let layout_layout = std::alloc::Layout::new::<std::alloc::Layout>();
-            let fields_layout = std::alloc::Layout::array::<&str>(n).unwrap();
-            let values_layout = std::alloc::Layout::array::<ValueTypes>(n).unwrap();
-            let indexes_layout = std::alloc::Layout::array::<u8>(n).unwrap();
-
-            let (layout, fields_offset) = layout_layout.extend(fields_layout).unwrap();
-            let (layout, values_offset) = layout.extend(values_layout).unwrap();
-            let (layout, indexes_offset) = layout.extend(indexes_layout).unwrap();
-
-            let block = std::alloc::alloc_zeroed(layout);
-            if block.is_null() {
-                panic!();
-            }
-
-            let mut layout_field =
-                std::ptr::NonNull::new(block as *mut std::alloc::Layout).unwrap();
-            let fields: &mut [&str] =
-                std::slice::from_raw_parts_mut(block.add(fields_offset) as *mut &str, n);
-            let values: &mut [ValueTypes] =
-                std::slice::from_raw_parts_mut(block.add(values_offset) as *mut ValueTypes, n);
-            let indexes: &mut [u8] = std::slice::from_raw_parts_mut(block.add(indexes_offset), n);
-
-            *layout_field.as_mut() = layout;
-
-            let mut i = 0;
-            for field in metadata.fields().iter() {
-                fields[i] = field.name();
-                values[i] = ValueTypes::None;
-                indexes[i] = i as u8;
-                i += 1;
-            }
-
-            indexes.sort_by_key(|idx| fields[*idx as usize]);
-
-            EtwLayerData {
-                fields,
-                values,
-                indexes,
-                activity_id: [0; 16],
-                related_activity_id: [0; 16],
-                _p: std::ptr::NonNull::new(block as *mut std::alloc::Layout).unwrap(),
-            }
-        };
-
-        #[cfg(not(feature = "unsafe"))]
         let mut data = {
+            let mut v: Vec<FieldValueIndex> = Vec::with_capacity(n);
+            v.resize_with(n, Default::default);
+            for i in 0..n {
+                v[i].sort_index = i as u8;
+            }
+
             EtwLayerData {
-                fields: vec![""; n].into_boxed_slice(),
-                values: vec![ValueTypes::None; n].into_boxed_slice(),
-                indexes: ([
-                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
-                ])[..n]
-                    .to_vec()
-                    .into_boxed_slice(),
+                fields: v.into_boxed_slice(),
                 activity_id: [0; 16],
                 related_activity_id: [0; 16],
+                start_time: SystemTime::UNIX_EPOCH,
             }
         };
 
@@ -499,9 +419,7 @@ where
         };
 
         attrs.values().record(&mut ValueVisitor {
-            fields: &data.fields,
-            values: &mut data.values,
-            indexes: &mut data.indexes,
+            fields: &mut data.fields,
         });
 
         // This will unfortunately box data. It would be ideal if we could avoid this second heap allocation,
@@ -535,16 +453,17 @@ where
             &data.activity_id,
             &data.related_activity_id,
             &data.fields,
-            &data.values,
             map_level(metadata.level()),
             self.default_keyword,
             0,
         );
+
+        data.start_time = timestamp;
     }
 
     fn on_exit(&self, id: &span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
         // A span was exited
-        let timestamp = std::time::SystemTime::now();
+        let stop_timestamp = std::time::SystemTime::now();
 
         let span = if let Some(span) = ctx.span(id) {
             span
@@ -564,11 +483,10 @@ where
 
         self.provider.as_ref().span_stop(
             &span,
-            timestamp,
+            (data.start_time, stop_timestamp),
             &data.activity_id,
             &data.related_activity_id,
             &data.fields,
-            &data.values,
             map_level(metadata.level()),
             self.default_keyword,
             0,
@@ -603,9 +521,7 @@ where
         };
 
         values.record(&mut ValueVisitor {
-            fields: &data.fields,
-            values: &mut data.values,
-            indexes: &mut data.indexes,
+            fields: &mut data.fields,
         });
     }
 }

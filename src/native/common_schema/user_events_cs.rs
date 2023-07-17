@@ -166,8 +166,7 @@ impl crate::native::EventWriter for CommonSchemaProvider {
         _timestamp: SystemTime,
         _activity_id: &[u8; 16],
         _related_activity_id: &[u8; 16],
-        _fields: &'b [&'static str],
-        _values: &'b [ValueTypes],
+        _fields: &'b [crate::values::FieldValueIndex],
         _level: u8,
         _keyword: u64,
         _event_tag: u32,
@@ -179,11 +178,10 @@ impl crate::native::EventWriter for CommonSchemaProvider {
     fn span_stop<'a, 'b, R>(
         self: Pin<&Self>,
         span: &'b SpanRef<'a, R>,
-        timestamp: SystemTime,
+        start_stop_times: (std::time::SystemTime, std::time::SystemTime),
         _activity_id: &[u8; 16],
         _related_activity_id: &[u8; 16],
-        fields: &'b [&'static str],
-        values: &'b [ValueTypes],
+        fields: &'b [crate::values::FieldValueIndex],
         level: u8,
         keyword: u64,
         event_tag: u32,
@@ -219,7 +217,7 @@ impl crate::native::EventWriter for CommonSchemaProvider {
             eb.add_struct("PartA", 2 /* + exts.len() as u8*/, 0);
             {
                 let time: String =
-                    chrono::DateTime::to_rfc3339(&chrono::DateTime::<chrono::Utc>::from(timestamp));
+                    chrono::DateTime::to_rfc3339(&chrono::DateTime::<chrono::Utc>::from(start_stop_times.1));
                 eb.add_str("time", time, FieldFormat::Default, 0);
 
                 eb.add_struct("ext_dt", 2, 0);
@@ -260,11 +258,10 @@ impl crate::native::EventWriter for CommonSchemaProvider {
 
                 eb.add_str("name", span_name, FieldFormat::Default, 0);
 
-                // TODO
                 eb.add_str(
                     "startTime",
                     &chrono::DateTime::to_rfc3339(&chrono::DateTime::<chrono::Utc>::from(
-                        timestamp,
+                        start_stop_times.0,
                     )),
                     FieldFormat::Default,
                     0,
@@ -277,14 +274,14 @@ impl crate::native::EventWriter for CommonSchemaProvider {
             {
                 let mut pfv = CommonSchemaPartCBuilder { eb: eb.deref_mut() };
 
-                for (f, v) in fields.iter().zip(values.iter()) {
+                for f in fields {
                     <CommonSchemaPartCBuilder<'_> as AddFieldAndValue<
                         CommonSchemaPartCBuilder<'_>,
                     >>::add_field_value(
                         &mut pfv,
                         &FieldAndValue {
-                            field_name: f,
-                            value: v,
+                            field_name: f.field,
+                            value: &f.value,
                         },
                     );
                 }

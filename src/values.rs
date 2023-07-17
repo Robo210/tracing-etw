@@ -80,19 +80,25 @@ pub(crate) struct FieldAndValue<'a> {
     pub(crate) value: &'a ValueTypes,
 }
 
+#[doc(hidden)]
+#[derive(Default)]
+pub struct FieldValueIndex {
+    pub(crate) field: &'static str,
+    pub(crate) value: ValueTypes,
+    pub(crate) sort_index: u8,
+}
+
 pub(crate) struct ValueVisitor<'a> {
-    pub(crate) fields: &'a [&'static str],
-    pub(crate) values: &'a mut [ValueTypes],
-    pub(crate) indexes: &'a mut [u8],
+    pub(crate) fields: &'a mut [FieldValueIndex],
 }
 
 impl<'a> ValueVisitor<'a> {
     fn update_value(&mut self, field_name: &'static str, value: ValueTypes) {
         let res = self
-            .indexes
-            .binary_search_by_key(&field_name, |idx| self.fields[*idx as usize]);
+            .fields
+            .binary_search_by_key(&field_name, |idx| self.fields[idx.sort_index as usize].field);
         if let Ok(idx) = res {
-            self.values[self.indexes[idx] as usize] = value;
+            self.fields[self.fields[idx].sort_index as usize].value = value;
         } else {
             // We don't support (and don't need to support) adding new fields that weren't in the original metadata
         }
