@@ -318,7 +318,7 @@ impl crate::native::EventWriter for CommonSchemaProvider {
             // let exts = json::extract_common_schema_parta_exts(attributes);
 
             eb.add_value("__csver__", 0x0401, FieldFormat::SignedInt, 0);
-            eb.add_struct("PartA", 2 /* + exts.len() as u8*/, 0);
+            eb.add_struct("PartA", 1 + if current_span != 0 { 1 } else { 0 } /* + exts.len() as u8*/, 0);
             {
                 let time: String =
                     chrono::DateTime::to_rfc3339(&chrono::DateTime::<chrono::Utc>::from(timestamp));
