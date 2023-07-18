@@ -1,4 +1,4 @@
-use crate::{map_level, values::*};
+use crate::{map_level, values::*, GLOBAL_ACTIVITY_SEED};
 use eventheader::*;
 use eventheader_dynamic::EventBuilder;
 use std::{cell::RefCell, ops::DerefMut, pin::Pin, sync::Arc, time::SystemTime};
