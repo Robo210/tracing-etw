@@ -3,17 +3,31 @@ use std::time::SystemTime;
 use std::{pin::Pin, sync::Arc};
 
 use tracelogging::Guid;
+use tracing::metadata::LevelFilter;
 use tracing::{span, Subscriber};
-use tracing_subscriber::filter::{Filtered, FilterExt, Targets, combinator::And};
+use tracing_subscriber::filter::{combinator::And, FilterExt, Filtered, Targets};
 use tracing_subscriber::layer::Filter;
 use tracing_subscriber::{registry::LookupSpan, Layer};
-use tracing::metadata::LevelFilter;
 
 use crate::native::ProviderGroup;
 
 use crate::native::{EventMode, EventWriter};
 use crate::values::*;
 use crate::{map_level, native};
+
+pub(crate) static GLOBAL_ACTIVITY_SEED: once_cell::sync::Lazy<[u8; 16]> =
+    once_cell::sync::Lazy::new(|| {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let seed = (now >> 64) as u64 | now as u64;
+        let mut data = [0; 16];
+        let (seed_half, _) = data.split_at_mut(8);
+        seed_half.copy_from_slice(&seed.to_le_bytes());
+        data[0] = 0;
+        data
+    });
 
 struct EtwLayerData {
     fields: Box<[FieldValueIndex]>,
@@ -100,7 +114,8 @@ where
     /// Set the EventHeader provider group to join this provider to.
     #[cfg(any(target_os = "linux", doc))]
     pub fn with_provider_group(mut self, name: &str) -> Self {
-        self.provider_group = native::ProviderGroup::Linux(std::borrow::Cow::Owned(name.to_owned()));
+        self.provider_group =
+            native::ProviderGroup::Linux(std::borrow::Cow::Owned(name.to_owned()));
         self
     }
 
@@ -148,11 +163,11 @@ where
         }
     }
 
-    fn build_target_filter(&self, target: &'static str,) -> Targets {
+    fn build_target_filter(&self, target: &'static str) -> Targets {
         let mut targets = Targets::new().with_target(&self.provider_name, LevelFilter::TRACE);
 
         match self.provider_group {
-            ProviderGroup::Windows(_guid) => {},
+            ProviderGroup::Windows(_guid) => {}
             ProviderGroup::Linux(ref name) => {
                 targets = targets.with_target(name.clone(), LevelFilter::TRACE);
             }
@@ -216,9 +231,7 @@ where
     }
 
     #[cfg(not(feature = "global_filter"))]
-    pub fn build<S>(
-        self
-    ) -> Filtered<EtwLayer<S, Mode::Provider>, EtwFilter<S, Mode::Provider>, S>
+    pub fn build<S>(self) -> Filtered<EtwLayer<S, Mode::Provider>, EtwFilter<S, Mode::Provider>, S>
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
         Mode::Provider: EventWriter + 'static,
@@ -400,8 +413,8 @@ where
 
             EtwLayerData {
                 fields: v.into_boxed_slice(),
-                activity_id: [0; 16],
-                related_activity_id: [0; 16],
+                activity_id: *GLOBAL_ACTIVITY_SEED,
+                related_activity_id: *GLOBAL_ACTIVITY_SEED,
                 start_time: SystemTime::UNIX_EPOCH,
             }
         };

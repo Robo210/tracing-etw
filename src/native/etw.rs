@@ -1,4 +1,4 @@
-use crate::values::*;
+use crate::{values::*, GLOBAL_ACTIVITY_SEED};
 use chrono::{Datelike, Timelike};
 use std::{cell::RefCell, ops::DerefMut, pin::Pin, sync::Arc, time::SystemTime};
 use tracelogging::*;
@@ -272,7 +272,7 @@ impl super::EventWriter for Provider {
         keyword: u64,
         event: &tracing::Event<'_>,
     ) {
-        let mut activity_id: [u8; 16] = [0; 16];
+        let mut activity_id: [u8; 16] = *GLOBAL_ACTIVITY_SEED;
         activity_id[0] = if current_span != 0 {
             let (_, half) = activity_id.split_at_mut(8);
             half.copy_from_slice(&current_span.to_le_bytes());
@@ -281,7 +281,7 @@ impl super::EventWriter for Provider {
             0
         };
 
-        let mut related_activity_id: [u8; 16] = [0; 16];
+        let mut related_activity_id: [u8; 16] = *GLOBAL_ACTIVITY_SEED;
         related_activity_id[0] = if parent_span != 0 {
             let (_, half) = related_activity_id.split_at_mut(8);
             half.copy_from_slice(&parent_span.to_le_bytes());

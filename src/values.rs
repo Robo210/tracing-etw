@@ -94,9 +94,9 @@ pub(crate) struct ValueVisitor<'a> {
 
 impl<'a> ValueVisitor<'a> {
     fn update_value(&mut self, field_name: &'static str, value: ValueTypes) {
-        let res = self
-            .fields
-            .binary_search_by_key(&field_name, |idx| self.fields[idx.sort_index as usize].field);
+        let res = self.fields.binary_search_by_key(&field_name, |idx| {
+            self.fields[idx.sort_index as usize].field
+        });
         if let Ok(idx) = res {
             self.fields[self.fields[idx].sort_index as usize].value = value;
         } else {
