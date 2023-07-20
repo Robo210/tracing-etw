@@ -17,13 +17,11 @@ use crate::native::ProviderGroup;
 thread_local! {static EBW: std::cell::RefCell<EventBuilder>  = RefCell::new(EventBuilder::new());}
 
 pub(crate) struct CommonSchemaPartCBuilder<'a> {
-    pub(crate) eb: &'a mut eventheader_dynamic::EventBuilder,
+    pub(crate) eb: &'a mut EventBuilder,
 }
 
 impl<'a> CommonSchemaPartCBuilder<'a> {
-    fn make_visitor(
-        eb: &'a mut eventheader_dynamic::EventBuilder,
-    ) -> VisitorWrapper<CommonSchemaPartCBuilder<'a>> {
+    fn make_visitor(eb: &'a mut EventBuilder) -> VisitorWrapper<CommonSchemaPartCBuilder<'a>> {
         VisitorWrapper::from(CommonSchemaPartCBuilder { eb })
     }
 }
@@ -40,36 +38,13 @@ impl<T> AddFieldAndValue<T> for CommonSchemaPartCBuilder<'_> {
             _ => (),
         };
 
-        match fv.value {
-            ValueTypes::None => (),
-            ValueTypes::v_u64(u) => {
-                self.eb.add_value(field_name, *u, FieldFormat::Default, 0);
-            }
-            ValueTypes::v_i64(i) => {
-                self.eb.add_value(field_name, *i, FieldFormat::SignedInt, 0);
-            }
-            ValueTypes::v_u128(u) => {
-                self.eb
-                    .add_value(field_name, u.to_le_bytes(), FieldFormat::Default, 0);
-            }
-            ValueTypes::v_i128(i) => {
-                self.eb
-                    .add_value(field_name, i.to_le_bytes(), FieldFormat::Default, 0);
-            }
-            ValueTypes::v_f64(f) => {
-                self.eb.add_value(field_name, *f, FieldFormat::Float, 0);
-            }
-            ValueTypes::v_bool(b) => {
-                self.eb.add_value(field_name, *b, FieldFormat::Boolean, 0);
-            }
-            ValueTypes::v_str(ref s) => {
-                self.eb
-                    .add_str(field_name, s.as_ref(), FieldFormat::Default, 0);
-            }
-            ValueTypes::v_char(c) => {
-                self.eb.add_value(field_name, *c, FieldFormat::StringUtf, 0);
-            }
-        }
+        <&mut EventBuilder as AddFieldAndValue<EventBuilder>>::add_field_value(
+            &mut self.eb,
+            &FieldAndValue {
+                field_name,
+                value: fv.value,
+            },
+        );
     }
 }
 

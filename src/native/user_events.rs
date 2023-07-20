@@ -8,52 +8,33 @@ use super::ProviderGroup;
 
 thread_local! {static EBW: std::cell::RefCell<EventBuilder>  = RefCell::new(EventBuilder::new());}
 
-pub(crate) struct PayloadFieldVisitor<'a> {
-    pub(crate) eb: &'a mut eventheader_dynamic::EventBuilder,
-}
-
-impl<'a> PayloadFieldVisitor<'a> {
-    fn make_visitor(
-        eb: &'a mut eventheader_dynamic::EventBuilder,
-    ) -> VisitorWrapper<PayloadFieldVisitor<'a>> {
-        VisitorWrapper::from(PayloadFieldVisitor { eb })
-    }
-}
-
-impl<T> AddFieldAndValue<T> for PayloadFieldVisitor<'_> {
+impl<T> AddFieldAndValue<T> for &'_ mut eventheader_dynamic::EventBuilder {
     fn add_field_value(&mut self, fv: &FieldAndValue) {
         match fv.value {
             ValueTypes::None => (),
             ValueTypes::v_u64(u) => {
-                self.eb
-                    .add_value(fv.field_name, *u, FieldFormat::Default, 0);
+                self.add_value(fv.field_name, *u, FieldFormat::Default, 0);
             }
             ValueTypes::v_i64(i) => {
-                self.eb
-                    .add_value(fv.field_name, *i, FieldFormat::SignedInt, 0);
+                self.add_value(fv.field_name, *i, FieldFormat::SignedInt, 0);
             }
             ValueTypes::v_u128(u) => {
-                self.eb
-                    .add_value(fv.field_name, u.to_le_bytes(), FieldFormat::Default, 0);
+                self.add_value(fv.field_name, u.to_le_bytes(), FieldFormat::Default, 0);
             }
             ValueTypes::v_i128(i) => {
-                self.eb
-                    .add_value(fv.field_name, i.to_le_bytes(), FieldFormat::Default, 0);
+                self.add_value(fv.field_name, i.to_le_bytes(), FieldFormat::Default, 0);
             }
             ValueTypes::v_f64(f) => {
-                self.eb.add_value(fv.field_name, *f, FieldFormat::Float, 0);
+                self.add_value(fv.field_name, *f, FieldFormat::Float, 0);
             }
             ValueTypes::v_bool(b) => {
-                self.eb
-                    .add_value(fv.field_name, *b, FieldFormat::Boolean, 0);
+                self.add_value(fv.field_name, *b, FieldFormat::Boolean, 0);
             }
             ValueTypes::v_str(ref s) => {
-                self.eb
-                    .add_str(fv.field_name, s.as_ref(), FieldFormat::Default, 0);
+                self.add_str(fv.field_name, s.as_ref(), FieldFormat::Default, 0);
             }
             ValueTypes::v_char(c) => {
-                self.eb
-                    .add_value(fv.field_name, *c, FieldFormat::StringUtf, 0);
+                self.add_value(fv.field_name, *c, FieldFormat::StringUtf, 0);
             }
         }
     }
@@ -183,13 +164,14 @@ impl crate::native::EventWriter for Provider {
                 0,
             );
 
-            let mut pfv = PayloadFieldVisitor { eb: eb.deref_mut() };
-
             for f in fields {
-                <PayloadFieldVisitor<'_> as AddFieldAndValue<PayloadFieldVisitor<'_>>>::add_field_value(&mut pfv, &FieldAndValue {
-                    field_name: f.field,
-                    value: &f.value,
-                });
+                <&mut EventBuilder as AddFieldAndValue<EventBuilder>>::add_field_value(
+                    &mut eb.deref_mut(),
+                    &FieldAndValue {
+                        field_name: f.field,
+                        value: &f.value,
+                    },
+                );
             }
 
             let _ = eb.write(
@@ -237,7 +219,8 @@ impl crate::native::EventWriter for Provider {
 
             eb.add_value(
                 "stop time",
-                start_stop_times.1
+                start_stop_times
+                    .1
                     .duration_since(std::time::SystemTime::UNIX_EPOCH)
                     .unwrap()
                     .as_secs(),
@@ -245,13 +228,14 @@ impl crate::native::EventWriter for Provider {
                 0,
             );
 
-            let mut pfv = PayloadFieldVisitor { eb: eb.deref_mut() };
-
             for f in fields {
-                <PayloadFieldVisitor<'_> as AddFieldAndValue<PayloadFieldVisitor<'_>>>::add_field_value(&mut pfv, &FieldAndValue {
-                    field_name: f.field,
-                    value: &f.value,
-                });
+                <&mut EventBuilder as AddFieldAndValue<EventBuilder>>::add_field_value(
+                    &mut eb.deref_mut(),
+                    &FieldAndValue {
+                        field_name: f.field,
+                        value: &f.value,
+                    },
+                );
             }
 
             let _ = eb.write(
@@ -320,7 +304,7 @@ impl crate::native::EventWriter for Provider {
                 0,
             );
 
-            let mut visitor = PayloadFieldVisitor::make_visitor(eb.deref_mut());
+            let mut visitor = VisitorWrapper::from(eb.deref_mut());
             event.record(&mut visitor);
 
             let _ = eb.write(

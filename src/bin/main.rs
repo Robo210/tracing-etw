@@ -2,6 +2,11 @@ use tracing::{event, span, Level};
 use tracing_etw::LayerBuilder;
 use tracing_subscriber::{self, fmt::format::FmtSpan, prelude::*};
 
+// #[tracing::instrument]
+// fn test_function(x: u32, y: f64) {
+
+// }
+
 fn main() {
     // let subscriber = tracing_subscriber::fmt::fmt()
     //     .with_span_events(FmtSpan::FULL)
@@ -36,6 +41,8 @@ fn main() {
     span!(Level::INFO, "nested_span", key = "value").in_scope(|| {
         event!(Level::ERROR, "oh noes!");
     });
+
+    //test_function(5, 83.29032);
 
     drop(_enter);
     drop(span);

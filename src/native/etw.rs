@@ -32,54 +32,34 @@ impl From<std::time::SystemTime> for Win32SystemTime {
     }
 }
 
-pub(crate) struct PayloadFieldVisitor<'a> {
-    pub(crate) eb: &'a mut tracelogging_dynamic::EventBuilder,
-}
-
-impl<'a> PayloadFieldVisitor<'a> {
-    fn make_visitor(
-        eb: &'a mut tracelogging_dynamic::EventBuilder,
-    ) -> VisitorWrapper<PayloadFieldVisitor<'a>> {
-        VisitorWrapper::from(PayloadFieldVisitor { eb })
-    }
-}
-
-impl<T> AddFieldAndValue<T> for PayloadFieldVisitor<'_> {
+impl<T> AddFieldAndValue<T> for &'_ mut tracelogging_dynamic::EventBuilder {
     fn add_field_value(&mut self, fv: &FieldAndValue) {
         match fv.value {
             ValueTypes::None => (),
             ValueTypes::v_u64(u) => {
-                self.eb.add_u64(fv.field_name, *u, OutType::Default, 0);
+                self.add_u64(fv.field_name, *u, OutType::Default, 0);
             }
             ValueTypes::v_i64(i) => {
-                self.eb.add_i64(fv.field_name, *i, OutType::Default, 0);
+                self.add_i64(fv.field_name, *i, OutType::Default, 0);
             }
             ValueTypes::v_u128(u) => {
-                // Or maybe add_binaryc?
-                self.eb
-                    .add_binary(fv.field_name, u.to_le_bytes(), OutType::Default, 0);
+                self.add_binary(fv.field_name, u.to_le_bytes(), OutType::Default, 0);
             }
             ValueTypes::v_i128(i) => {
-                // Or maybe add_binaryc?
-                self.eb
-                    .add_binary(fv.field_name, i.to_le_bytes(), OutType::Default, 0);
+                self.add_binary(fv.field_name, i.to_le_bytes(), OutType::Default, 0);
             }
             ValueTypes::v_f64(f) => {
-                self.eb.add_f64(fv.field_name, *f, OutType::Default, 0);
+                self.add_f64(fv.field_name, *f, OutType::Default, 0);
             }
             ValueTypes::v_bool(b) => {
-                // Or maybe add_u8 + OutType::Boolean?
-                self.eb
-                    .add_bool32(fv.field_name, *b as i32, OutType::Default, 0);
+                self.add_bool32(fv.field_name, *b as i32, OutType::Default, 0);
             }
             ValueTypes::v_str(ref s) => {
-                self.eb
-                    .add_str8(fv.field_name, s.as_ref(), OutType::Utf8, 0);
+                self.add_str8(fv.field_name, s.as_ref(), OutType::Utf8, 0);
             }
             ValueTypes::v_char(c) => {
                 // Or add_str16 with a 1-char (BMP) or 2-char (surrogate-pair) string.
-                self.eb
-                    .add_u16(fv.field_name, *c as u16, OutType::String, 0);
+                self.add_u16(fv.field_name, *c as u16, OutType::String, 0);
             }
         }
     }
@@ -180,13 +160,14 @@ impl super::EventWriter for Provider {
                 0,
             );
 
-            let mut pfv = PayloadFieldVisitor { eb: eb.deref_mut() };
-
             for f in fields {
-                <PayloadFieldVisitor<'_> as AddFieldAndValue<PayloadFieldVisitor<'_>>>::add_field_value(&mut pfv, &FieldAndValue {
-                    field_name: f.field,
-                    value: &f.value,
-                });
+                <&mut EventBuilder as AddFieldAndValue<EventBuilder>>::add_field_value(
+                    &mut eb.deref_mut(),
+                    &FieldAndValue {
+                        field_name: f.field,
+                        value: &f.value,
+                    },
+                );
             }
 
             let act = tracelogging_dynamic::Guid::from_bytes_le(activity_id);
@@ -235,13 +216,14 @@ impl super::EventWriter for Provider {
                 0,
             );
 
-            let mut pfv = PayloadFieldVisitor { eb: eb.deref_mut() };
-
             for f in fields {
-                <PayloadFieldVisitor<'_> as AddFieldAndValue<PayloadFieldVisitor<'_>>>::add_field_value(&mut pfv, &FieldAndValue {
-                    field_name: f.field,
-                    value: &f.value,
-                });
+                <&mut EventBuilder as AddFieldAndValue<EventBuilder>>::add_field_value(
+                    &mut eb.deref_mut(),
+                    &FieldAndValue {
+                        field_name: f.field,
+                        value: &f.value,
+                    },
+                );
             }
 
             let act = tracelogging_dynamic::Guid::from_bytes_le(activity_id);
@@ -303,8 +285,7 @@ impl super::EventWriter for Provider {
                 0,
             );
 
-            let mut visitor = PayloadFieldVisitor::make_visitor(eb.deref_mut());
-            event.record(&mut visitor);
+            event.record(&mut VisitorWrapper::from(eb.deref_mut()));
 
             let act = tracelogging_dynamic::Guid::from_bytes_le(&activity_id);
             let related = tracelogging_dynamic::Guid::from_bytes_le(&related_activity_id);

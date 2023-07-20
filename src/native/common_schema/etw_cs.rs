@@ -17,13 +17,11 @@ use crate::native::ProviderGroup;
 thread_local! {static EBW: std::cell::RefCell<EventBuilder>  = RefCell::new(EventBuilder::new());}
 
 pub(crate) struct CommonSchemaPartCBuilder<'a> {
-    pub(crate) eb: &'a mut tracelogging_dynamic::EventBuilder,
+    pub(crate) eb: &'a mut EventBuilder,
 }
 
 impl<'a> CommonSchemaPartCBuilder<'a> {
-    fn make_visitor(
-        eb: &'a mut tracelogging_dynamic::EventBuilder,
-    ) -> VisitorWrapper<CommonSchemaPartCBuilder<'a>> {
+    fn make_visitor(eb: &'a mut EventBuilder) -> VisitorWrapper<CommonSchemaPartCBuilder<'a>> {
         VisitorWrapper::from(CommonSchemaPartCBuilder { eb })
     }
 }
@@ -40,40 +38,13 @@ impl<T> AddFieldAndValue<T> for CommonSchemaPartCBuilder<'_> {
             _ => (),
         };
 
-        match fv.value {
-            ValueTypes::None => (),
-            ValueTypes::v_u64(u) => {
-                self.eb.add_u64(field_name, *u, OutType::Default, 0);
-            }
-            ValueTypes::v_i64(i) => {
-                self.eb.add_i64(field_name, *i, OutType::Default, 0);
-            }
-            ValueTypes::v_u128(u) => {
-                // Or maybe add_binaryc?
-                self.eb
-                    .add_binary(field_name, u.to_le_bytes(), OutType::Default, 0);
-            }
-            ValueTypes::v_i128(i) => {
-                // Or maybe add_binaryc?
-                self.eb
-                    .add_binary(field_name, i.to_le_bytes(), OutType::Default, 0);
-            }
-            ValueTypes::v_f64(f) => {
-                self.eb.add_f64(field_name, *f, OutType::Default, 0);
-            }
-            ValueTypes::v_bool(b) => {
-                // Or maybe add_u8 + OutType::Boolean?
-                self.eb
-                    .add_bool32(field_name, *b as i32, OutType::Default, 0);
-            }
-            ValueTypes::v_str(ref s) => {
-                self.eb.add_str8(field_name, s.as_ref(), OutType::Utf8, 0);
-            }
-            ValueTypes::v_char(c) => {
-                // Or add_str16 with a 1-char (BMP) or 2-char (surrogate-pair) string.
-                self.eb.add_u16(field_name, *c as u16, OutType::String, 0);
-            }
-        }
+        <&mut EventBuilder as AddFieldAndValue<EventBuilder>>::add_field_value(
+            &mut self.eb,
+            &FieldAndValue {
+                field_name,
+                value: fv.value,
+            },
+        );
     }
 }
 
