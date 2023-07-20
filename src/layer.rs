@@ -407,8 +407,26 @@ where
         let mut data = {
             let mut v: Vec<FieldValueIndex> = Vec::with_capacity(n);
             v.resize_with(n, Default::default);
-            for i in 0..n {
+
+            let mut i = 0;
+            for field in metadata.fields().iter() {
+                v[i].field = field.name();
+                v[i].value = ValueTypes::None;
                 v[i].sort_index = i as u8;
+                i += 1;
+            }
+
+            let mut indexes: [u8; 32] = [
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+                22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+            ];
+
+            indexes[0..n].sort_by_key(|idx| v[v[*idx as usize].sort_index as usize].field);
+
+            i = 0;
+            for f in &mut v {
+                f.sort_index = indexes[i];
+                i += 1;
             }
 
             EtwLayerData {
@@ -435,8 +453,8 @@ where
             fields: &mut data.fields,
         });
 
-        // This will unfortunately box data. It would be ideal if we could avoid this second heap allocation,
-        // but at least it's small.
+        // This will unfortunately box data. It would be ideal if we could avoid this second heap allocation
+        // by packing everything into a single alloc.
         span.extensions_mut().replace(data);
     }
 
