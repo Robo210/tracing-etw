@@ -1,5 +1,5 @@
 use tracing::{event, span, Level};
-use tracing_etw::LayerBuilder;
+use tracing_etw::{etw_event, LayerBuilder};
 use tracing_subscriber::{self, fmt::format::FmtSpan, prelude::*};
 
 // #[tracing::instrument]
@@ -18,34 +18,34 @@ fn main() {
         .with(tracing_subscriber::fmt::layer().with_span_events(FmtSpan::ACTIVE));
     let _sub = subscriber.try_init();
 
-    #[allow(non_snake_case)]
-    let fieldB = "asdf";
-    event!(
-        Level::INFO,
-        fieldC = b'x',
-        fieldB,
-        fieldA = 7,
-        "inside {}!",
-        "main"
-    );
+    // #[allow(non_snake_case)]
+    // let fieldB = "asdf";
+    // event!(
+    //     Level::INFO,
+    //     fieldC = b'x',
+    //     fieldB,
+    //     fieldA = 7,
+    //     "inside {}!",
+    //     "main"
+    // );
 
-    // Construct a new span named "my span" with trace log level.
-    let span = span!(Level::INFO, "my_span", field3 = 4.5, field2 = 0, field1 = 0);
+    // // Construct a new span named "my span" with trace log level.
+    // let span = span!(Level::INFO, "my_span", field3 = 4.5, field2 = 0, field1 = 0);
 
-    // Enter the span, returning a guard object.
-    let _enter = span.enter();
-    span.record("field1", 12345);
+    // // Enter the span, returning a guard object.
+    // let _enter = span.enter();
+    // span.record("field1", 12345);
 
-    span.record("field2", "9876f64");
+    // span.record("field2", "9876f64");
 
-    span!(Level::INFO, "nested_span", key = "value").in_scope(|| {
-        event!(Level::ERROR, "oh noes!");
-    });
+    // span!(Level::INFO, "nested_span", key = "value").in_scope(|| {
+    //     event!(Level::ERROR, "oh noes!");
+    // });
 
-    //test_function(5, 83.29032);
+    // //test_function(5, 83.29032);
 
-    drop(_enter);
-    drop(span);
+    // drop(_enter);
+    // drop(span);
 
-    event!(target: "geneva", Level::INFO, "Only for geneva!");
+    etw_event!(target: "geneva", name: "EtwEventName", Level::ERROR, 5, "Only for geneva!");
 }

@@ -246,6 +246,53 @@ where
     }
 }
 
+const EVENT_PREFIX: &'static str = "event etw:";
+static EVENT_METADATA_MAP: once_cell::sync::Lazy<dashmap::DashMap<tracing::callsite::Identifier, (&'static str, u64)>> = once_cell::sync::Lazy::new(dashmap::DashMap::new);
+
+fn is_etw_event_name(name: &'static str) -> bool {
+    name.starts_with(EVENT_PREFIX)
+}
+
+fn parse_event_name(name: &'static str) -> Option<(&'static str, u64)> {
+    if !is_etw_event_name(name) {
+        None
+    } else {
+        let without_prefix = &name[EVENT_PREFIX.len()..];
+        let mut name = "";
+        let mut keyword = 0;
+        let mut next = 0;
+        for s in without_prefix.split(':') {
+            if next == 0 {
+                name = s;
+            } else if next == 1 {
+                if let Some(v) = atoi::atoi::<u64>(s.as_bytes()) {
+                    keyword = v;
+                } else {
+                    keyword = 0;
+                }
+            }
+            next += 1;
+        }
+        Some((name, keyword))
+    }
+}
+
+fn get_etw_event_metadata_for_event(metadata: &'static tracing::Metadata) -> Option<(&'static str, u64)> {
+    let map = EVENT_METADATA_MAP.get(&metadata.callsite());
+    match map {
+        Some(_) => Some(*map.unwrap()),
+        None => {
+            let parsed = parse_event_name(metadata.name());
+            match parsed {
+                None => None,
+                Some(v) => {
+                    EVENT_METADATA_MAP.insert(metadata.callsite(), v)
+                }
+            }
+        }
+    }
+}
+
 pub struct EtwFilter<S, P> {
     provider: Pin<Arc<P>>,
     default_keyword: u64,
@@ -261,10 +308,17 @@ where
         &self,
         metadata: &'static tracing::Metadata<'static>,
     ) -> tracing::subscriber::Interest {
+        let etw_meta = get_etw_event_metadata_for_event(metadata);
+        let keyword = if let Some(meta) = etw_meta {
+            meta.1
+        } else {
+            self.default_keyword
+        };
+
         if P::supports_enable_callback() {
             if self
                 .provider
-                .enabled(map_level(metadata.level()), self.default_keyword)
+                .enabled(map_level(metadata.level()), keyword)
             {
                 tracing::subscriber::Interest::always()
             } else {
@@ -320,10 +374,17 @@ where
         &self,
         metadata: &'static tracing::Metadata<'static>,
     ) -> tracing::subscriber::Interest {
+        let etw_meta = get_etw_event_metadata_for_event(metadata);
+        let keyword = if let Some(meta) = etw_meta {
+            meta.1
+        } else {
+            self.default_keyword
+        };
+
         if ProviderWrapper::supports_enable_callback() {
             if self
                 .provider
-                .enabled(map_level(metadata.level()), self.default_keyword)
+                .enabled(map_level(metadata.level()), keyword)
             {
                 tracing::subscriber::Interest::always()
             } else {
@@ -342,18 +403,32 @@ where
         metadata: &tracing::Metadata<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) -> bool {
+        let etw_meta = get_etw_event_metadata_for_event(metadata);
+        let keyword = if let Some(meta) = etw_meta {
+            meta.1
+        } else {
+            self.default_keyword
+        };
+
         self.provider
-            .enabled(map_level(metadata.level()), self.default_keyword)
+            .enabled(map_level(metadata.level()), keyword)
     }
 
     #[cfg(feature = "global_filter")]
     fn event_enabled(
         &self,
-        _event: &tracing::Event<'_>,
+        event: &tracing::Event<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) -> bool {
+        let etw_meta = get_etw_event_metadata_for_event(event.metadata());
+        let keyword = if let Some(meta) = etw_meta {
+            meta.1
+        } else {
+            self.default_keyword
+        };
+
         self.provider
-            .enabled(map_level(event.metadata().level()), self.default_keyword)
+            .enabled(map_level(event.metadata().level()), keyword)
     }
 
     fn on_event(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, S>) {
@@ -367,13 +442,20 @@ where
             .event_span(event)
             .map_or(0, |evt| evt.parent().map_or(0, |p| p.id().into_u64()));
 
+        let etw_meta = get_etw_event_metadata_for_event(event.metadata());
+        let (name, keyword) = if let Some(meta) = etw_meta {
+            (meta.0, meta.1)
+        } else {
+            (event.metadata().name(), self.default_keyword)
+        };
+
         self.provider.as_ref().write_record(
             timestamp,
             current_span,
             parent_span,
-            event.metadata().name(),
+            name,
             map_level(event.metadata().level()),
-            self.default_keyword,
+            keyword,
             event,
         );
     }
@@ -478,6 +560,13 @@ where
             return;
         };
 
+        let etw_meta = get_etw_event_metadata_for_event(metadata);
+        let keyword = if let Some(meta) = etw_meta {
+            meta.1
+        } else {
+            self.default_keyword
+        };
+
         self.provider.as_ref().span_start(
             &span,
             timestamp,
@@ -485,7 +574,7 @@ where
             &data.related_activity_id,
             &data.fields,
             map_level(metadata.level()),
-            self.default_keyword,
+            keyword,
             0,
         );
 
@@ -512,6 +601,13 @@ where
             return;
         };
 
+        let etw_meta = get_etw_event_metadata_for_event(metadata);
+        let keyword = if let Some(meta) = etw_meta {
+            meta.1
+        } else {
+            self.default_keyword
+        };
+
         self.provider.as_ref().span_stop(
             &span,
             (data.start_time, stop_timestamp),
@@ -519,7 +615,7 @@ where
             &data.related_activity_id,
             &data.fields,
             map_level(metadata.level()),
-            self.default_keyword,
+            keyword,
             0,
         );
     }
