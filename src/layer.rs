@@ -78,7 +78,7 @@ pub(crate) static EVENT_METADATA: once_cell::sync::Lazy<
 
         let map = dashmap::DashMap::with_capacity(events_slice.len());
         next_pos = 0;
-        while next_pos <= good_pos {
+        while next_pos < good_pos {
             let event = &*events_slice[next_pos];
             map.insert(event.identity.clone(), event);
             next_pos += 1;
