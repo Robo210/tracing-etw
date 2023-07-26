@@ -6,6 +6,13 @@ use tracing_subscriber::registry::{LookupSpan, SpanRef};
 
 use super::ProviderGroup;
 
+extern "C" {
+    #[link_name = "__start__etw_kw"]
+    pub(crate) static mut _start__etw_kw: usize;
+    #[link_name = "__stop__etw_kw"]
+    pub(crate) static mut _stop__etw_kw: usize;
+}
+
 thread_local! {static EBW: std::cell::RefCell<EventBuilder>  = RefCell::new(EventBuilder::new());}
 
 impl<T> AddFieldAndValue<T> for &'_ mut eventheader_dynamic::EventBuilder {
@@ -85,6 +92,29 @@ impl crate::native::EventWriter for Provider {
             options = *options.group_name(&name);
         }
         let mut provider = eventheader_dynamic::Provider::new(provider_name, &options);
+
+        for event in &*crate::EVENT_METADATA {
+            provider.register_set(
+                eventheader_dynamic::Level::from_int(map_level(&tracing::Level::ERROR)),
+                event.kw,
+            );
+            provider.register_set(
+                eventheader_dynamic::Level::from_int(map_level(&tracing::Level::WARN)),
+                event.kw,
+            );
+            provider.register_set(
+                eventheader_dynamic::Level::from_int(map_level(&tracing::Level::INFO)),
+                event.kw,
+            );
+            provider.register_set(
+                eventheader_dynamic::Level::from_int(map_level(&tracing::Level::DEBUG)),
+                event.kw,
+            );
+            provider.register_set(
+                eventheader_dynamic::Level::from_int(map_level(&tracing::Level::TRACE)),
+                event.kw,
+            );
+        }
 
         provider.register_set(
             eventheader_dynamic::Level::from_int(map_level(&tracing::Level::ERROR)),

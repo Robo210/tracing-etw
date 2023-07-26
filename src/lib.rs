@@ -1,5 +1,5 @@
 mod layer;
-mod native;
+pub mod native;
 mod values;
 
 pub use layer::*;
@@ -16,16 +16,22 @@ pub const fn map_level(level: &tracing::Level) -> u8 {
     }
 }
 
+#[doc(hidden)]
+pub struct EtwEventMetadata {
+    pub kw: u64,
+    pub identity: tracing::callsite::Identifier,
+}
+
 #[macro_export]
 macro_rules! etw_event {
     (target: $target:expr, name: $name:expr, $lvl:expr, $kw:expr, { $($fields:tt)* } )=> ({
         use tracing::Callsite;
         use const_format::concatcp;
-        const ETW_LEVEL: u8 = $crate::map_level(&$lvl);
+
         static CALLSITE: tracing::callsite::DefaultCallsite =
             tracing::callsite::DefaultCallsite::new(
             {
-                const EVENT_NAME: &'static str = concatcp!("event etw:", $name, ":", ($kw as u64));
+                const EVENT_NAME: &'static str = $name;
                 static META: tracing::metadata::Metadata =
                     tracing::metadata::Metadata::new(
                         EVENT_NAME,
@@ -40,6 +46,22 @@ macro_rules! etw_event {
                 &META
             }
         );
+
+        static ETW_META: $crate::EtwEventMetadata = $crate::EtwEventMetadata{
+            kw: $kw,
+            identity: tracing_core::identify_callsite!(&CALLSITE)
+        };
+
+        #[cfg(target_os = "linux")]
+        #[link_section = "_etw_kw"]
+        #[no_mangle]
+        static mut ETW_META_PTR: *const $crate::EtwEventMetadata = &ETW_META;
+
+        #[cfg(target_os = "windows")]
+        #[link_section = ".rsdata$zRSETW5"]
+        #[no_mangle]
+        static mut ETW_META_PTR: *const $crate::EtwEventMetadata = &ETW_META;
+
         let enabled = tracing::level_enabled!($lvl) && {
             let interest = CALLSITE.interest();
             !interest.is_never() && tracing::__macro_support::__is_enabled(CALLSITE.metadata(), interest)

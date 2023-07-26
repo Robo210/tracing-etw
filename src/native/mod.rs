@@ -4,6 +4,12 @@ pub mod etw;
 #[cfg(target_os = "windows")]
 #[doc(hidden)]
 pub use etw::Provider;
+#[cfg(target_os = "windows")]
+#[doc(hidden)]
+pub(crate) use etw::_start__etw_kw;
+#[cfg(target_os = "windows")]
+#[doc(hidden)]
+pub(crate) use etw::_stop__etw_kw;
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
 #[doc(hidden)]
@@ -18,6 +24,12 @@ pub mod user_events;
 #[cfg(target_os = "linux")]
 #[doc(hidden)]
 pub use user_events::Provider;
+#[cfg(target_os = "linux")]
+#[doc(hidden)]
+pub(crate) use user_events::_start__etw_kw;
+#[cfg(target_os = "linux")]
+#[doc(hidden)]
+pub(crate) use user_events::_stop__etw_kw;
 
 #[cfg(feature = "common_schema")]
 pub(crate) mod common_schema;

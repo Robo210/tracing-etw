@@ -7,6 +7,13 @@ use tracing_subscriber::registry::{LookupSpan, SpanRef};
 
 use super::ProviderGroup;
 
+#[allow(non_upper_case_globals)]
+#[link_section = ".rsdata$zRSETW0"]
+pub(crate) static mut _start__etw_kw: usize = usize::from_ne_bytes(*b"RSETW000");
+#[allow(non_upper_case_globals)]
+#[link_section = ".rsdata$zRSETW9"]
+pub(crate) static mut _stop__etw_kw: usize = usize::from_ne_bytes(*b"RSETW999");
+
 thread_local! {static EBW: std::cell::RefCell<EventBuilder>  = RefCell::new(EventBuilder::new());}
 
 struct Win32SystemTime {

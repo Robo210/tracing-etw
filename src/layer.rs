@@ -12,7 +12,7 @@ use tracing_subscriber::{registry::LookupSpan, Layer};
 use crate::native::ProviderGroup;
 
 use crate::native::{EventMode, EventWriter};
-use crate::values::*;
+use crate::{values::*, EtwEventMetadata};
 use crate::{map_level, native};
 
 pub(crate) static GLOBAL_ACTIVITY_SEED: once_cell::sync::Lazy<[u8; 16]> =
@@ -27,6 +27,65 @@ pub(crate) static GLOBAL_ACTIVITY_SEED: once_cell::sync::Lazy<[u8; 16]> =
         seed_half.copy_from_slice(&seed.to_le_bytes());
         data[0] = 0;
         data
+    });
+
+pub(crate) static EVENT_METADATA: once_cell::sync::Lazy<dashmap::DashMap<tracing::callsite::Identifier, &'static EtwEventMetadata>> =
+    once_cell::sync::Lazy::new(|| {
+        unsafe {
+            let start = &crate::native::_start__etw_kw as *const usize
+                as *mut *const crate::EtwEventMetadata;
+            let stop = &crate::native::_stop__etw_kw as *const usize
+                as *mut *const crate::EtwEventMetadata;
+
+            #[cfg(target_os = "windows")]
+            let start = start.add(1);
+
+            let events_slice = &mut *core::ptr::slice_from_raw_parts_mut(
+                start,
+                stop.offset_from(start) as usize,
+            );
+
+            if events_slice.is_empty() {
+                return dashmap::DashMap::new();
+            }
+
+            // Sort spurious nulls to the end
+            events_slice.sort_unstable_by(|a, b| b.cmp(a));
+
+            // Remove spurious duplicates
+            let end_pos = events_slice.len();
+            let mut good_pos = 0;
+            while good_pos != end_pos - 1 {
+                if events_slice[good_pos] == events_slice[good_pos + 1] {
+                    let mut next_pos = good_pos + 2;
+                    while next_pos != end_pos {
+                        if events_slice[good_pos] != events_slice[next_pos] {
+                            good_pos += 1;
+                            events_slice[good_pos] = events_slice[next_pos];
+                        }
+                        next_pos += 1;
+                    }
+                    break;
+                }
+                good_pos += 1;
+            }
+
+            // Explicitly set all the values at the end to null
+            let mut next_pos = good_pos + 1;
+            while next_pos != end_pos {
+                events_slice[next_pos] = core::ptr::null();
+                next_pos += 1;
+            }
+
+            let map = dashmap::DashMap::with_capacity(events_slice.len());
+            next_pos = 0;
+            while next_pos <= good_pos {
+                let event = &*events_slice[next_pos];
+                map.insert(event.identity.clone(), event);
+                next_pos += 1;
+            }
+            map
+        }
     });
 
 struct EtwLayerData {
@@ -246,52 +305,54 @@ where
     }
 }
 
-const EVENT_PREFIX: &'static str = "event etw:";
-static EVENT_METADATA_MAP: once_cell::sync::Lazy<dashmap::DashMap<tracing::callsite::Identifier, (&'static str, u64)>> = once_cell::sync::Lazy::new(dashmap::DashMap::new);
+// const EVENT_PREFIX: &'static str = "event etw:";
+// static EVENT_METADATA_MAP: once_cell::sync::Lazy<
+//     dashmap::DashMap<tracing::callsite::Identifier, (&'static str, u64)>,
+// > = once_cell::sync::Lazy::new(dashmap::DashMap::new);
 
-fn is_etw_event_name(name: &'static str) -> bool {
-    name.starts_with(EVENT_PREFIX)
-}
+// fn is_etw_event_name(name: &'static str) -> bool {
+//     name.starts_with(EVENT_PREFIX)
+// }
 
-fn parse_event_name(name: &'static str) -> Option<(&'static str, u64)> {
-    if !is_etw_event_name(name) {
-        None
-    } else {
-        let without_prefix = &name[EVENT_PREFIX.len()..];
-        let mut name = "";
-        let mut keyword = 0;
-        let mut next = 0;
-        for s in without_prefix.split(':') {
-            if next == 0 {
-                name = s;
-            } else if next == 1 {
-                if let Some(v) = atoi::atoi::<u64>(s.as_bytes()) {
-                    keyword = v;
-                } else {
-                    keyword = 0;
-                }
-            }
-            next += 1;
-        }
-        Some((name, keyword))
-    }
-}
+// fn parse_event_name(name: &'static str) -> Option<(&'static str, u64)> {
+//     if !is_etw_event_name(name) {
+//         None
+//     } else {
+//         let without_prefix = &name[EVENT_PREFIX.len()..];
+//         let mut name = "";
+//         let mut keyword = 0;
+//         let mut next = 0;
+//         for s in without_prefix.split(':') {
+//             if next == 0 {
+//                 name = s;
+//             } else if next == 1 {
+//                 if let Some(v) = atoi::atoi::<u64>(s.as_bytes()) {
+//                     keyword = v;
+//                 } else {
+//                     keyword = 0;
+//                 }
+//             }
+//             next += 1;
+//         }
+//         Some((name, keyword))
+//     }
+// }
 
-fn get_etw_event_metadata_for_event(metadata: &'static tracing::Metadata) -> Option<(&'static str, u64)> {
-    let map = EVENT_METADATA_MAP.get(&metadata.callsite());
-    match map {
-        Some(_) => Some(*map.unwrap()),
-        None => {
-            let parsed = parse_event_name(metadata.name());
-            match parsed {
-                None => None,
-                Some(v) => {
-                    EVENT_METADATA_MAP.insert(metadata.callsite(), v)
-                }
-            }
-        }
-    }
-}
+// fn get_etw_event_metadata_for_event(
+//     metadata: &'static tracing::Metadata,
+// ) -> Option<(&'static str, u64)> {
+//     let map = EVENT_METADATA_MAP.get(&metadata.callsite());
+//     match map {
+//         Some(_) => Some(*map.unwrap()),
+//         None => {
+//             let parsed = parse_event_name(metadata.name());
+//             match parsed {
+//                 None => None,
+//                 Some(v) => EVENT_METADATA_MAP.insert(metadata.callsite(), v),
+//             }
+//         }
+//     }
+// }
 
 pub struct EtwFilter<S, P> {
     provider: Pin<Arc<P>>,
@@ -308,18 +369,15 @@ where
         &self,
         metadata: &'static tracing::Metadata<'static>,
     ) -> tracing::subscriber::Interest {
-        let etw_meta = get_etw_event_metadata_for_event(metadata);
+        let etw_meta = EVENT_METADATA.get(&metadata.callsite());
         let keyword = if let Some(meta) = etw_meta {
-            meta.1
+            meta.kw
         } else {
             self.default_keyword
         };
 
         if P::supports_enable_callback() {
-            if self
-                .provider
-                .enabled(map_level(metadata.level()), keyword)
-            {
+            if self.provider.enabled(map_level(metadata.level()), keyword) {
                 tracing::subscriber::Interest::always()
             } else {
                 tracing::subscriber::Interest::never()
@@ -382,10 +440,7 @@ where
         };
 
         if ProviderWrapper::supports_enable_callback() {
-            if self
-                .provider
-                .enabled(map_level(metadata.level()), keyword)
-            {
+            if self.provider.enabled(map_level(metadata.level()), keyword) {
                 tracing::subscriber::Interest::always()
             } else {
                 tracing::subscriber::Interest::never()
@@ -410,8 +465,7 @@ where
             self.default_keyword
         };
 
-        self.provider
-            .enabled(map_level(metadata.level()), keyword)
+        self.provider.enabled(map_level(metadata.level()), keyword)
     }
 
     #[cfg(feature = "global_filter")]
@@ -442,9 +496,9 @@ where
             .event_span(event)
             .map_or(0, |evt| evt.parent().map_or(0, |p| p.id().into_u64()));
 
-        let etw_meta = get_etw_event_metadata_for_event(event.metadata());
+        let etw_meta = EVENT_METADATA.get(&event.metadata().callsite());
         let (name, keyword) = if let Some(meta) = etw_meta {
-            (meta.0, meta.1)
+            (event.metadata().name(), meta.kw)
         } else {
             (event.metadata().name(), self.default_keyword)
         };
@@ -560,9 +614,9 @@ where
             return;
         };
 
-        let etw_meta = get_etw_event_metadata_for_event(metadata);
+        let etw_meta = EVENT_METADATA.get(&metadata.callsite());
         let keyword = if let Some(meta) = etw_meta {
-            meta.1
+            meta.kw
         } else {
             self.default_keyword
         };
@@ -601,9 +655,9 @@ where
             return;
         };
 
-        let etw_meta = get_etw_event_metadata_for_event(metadata);
+        let etw_meta = EVENT_METADATA.get(&metadata.callsite());
         let keyword = if let Some(meta) = etw_meta {
-            meta.1
+            meta.kw
         } else {
             self.default_keyword
         };
