@@ -13,6 +13,11 @@ extern "C" {
     pub(crate) static mut _stop__etw_kw: usize;
 }
 
+#[link_section = "_etw_kw"]
+#[used]
+static mut ETW_META_PTR: *const crate::EtwEventMetadata = core::ptr::null();
+
+
 thread_local! {static EBW: std::cell::RefCell<EventBuilder>  = RefCell::new(EventBuilder::new());}
 
 impl<T> AddFieldAndValue<T> for &'_ mut eventheader_dynamic::EventBuilder {
