@@ -94,6 +94,29 @@ impl crate::native::EventWriter for CommonSchemaProvider {
         }
         let mut provider = eventheader_dynamic::Provider::new(provider_name, &options);
 
+        for event in &*crate::EVENT_METADATA {
+            provider.register_set(
+                eventheader_dynamic::Level::from_int(map_level(&tracing::Level::ERROR)),
+                event.kw,
+            );
+            provider.register_set(
+                eventheader_dynamic::Level::from_int(map_level(&tracing::Level::WARN)),
+                event.kw,
+            );
+            provider.register_set(
+                eventheader_dynamic::Level::from_int(map_level(&tracing::Level::INFO)),
+                event.kw,
+            );
+            provider.register_set(
+                eventheader_dynamic::Level::from_int(map_level(&tracing::Level::DEBUG)),
+                event.kw,
+            );
+            provider.register_set(
+                eventheader_dynamic::Level::from_int(map_level(&tracing::Level::TRACE)),
+                event.kw,
+            );
+        }
+
         provider.register_set(
             eventheader_dynamic::Level::from_int(map_level(&tracing::Level::ERROR)),
             default_keyword,
@@ -275,6 +298,7 @@ impl crate::native::EventWriter for CommonSchemaProvider {
         event_name: &str,
         level: u8,
         keyword: u64,
+        event_tag: u32,
         event: &tracing::Event<'_>,
     ) {
         let es = if let Some(es) = self.find_set(level.into(), keyword) {
@@ -286,7 +310,7 @@ impl crate::native::EventWriter for CommonSchemaProvider {
         EBW.with(|eb| {
             let mut eb = eb.borrow_mut();
 
-            eb.reset(event_name, 0);
+            eb.reset(event_name, event_tag as u16);
             eb.opcode(Opcode::Info);
 
             // Promoting values from PartC to PartA extensions is apparently just a draft spec

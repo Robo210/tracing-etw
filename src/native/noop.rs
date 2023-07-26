@@ -6,6 +6,11 @@ use crate::values::*;
 
 use crate::native::ProviderGroup;
 
+#[allow(non_upper_case_globals)]
+pub(crate) static mut _start__etw_kw: usize = 0;
+#[allow(non_upper_case_globals)]
+pub(crate) static mut _stop__etw_kw: usize = 0;
+
 pub(crate) struct EventBuilderWrapper<'a> {
     _p: core::marker::PhantomData<&'a u8>,
 }
@@ -78,6 +83,7 @@ impl crate::native::EventWriter for Provider {
         _event_name: &str,
         _level: u8,
         _keyword: u64,
+        _event_tag: u32,
         _event: &tracing::Event<'_>,
     ) {
     }

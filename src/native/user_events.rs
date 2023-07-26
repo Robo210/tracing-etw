@@ -292,6 +292,7 @@ impl crate::native::EventWriter for Provider {
         event_name: &str,
         level: u8,
         keyword: u64,
+        event_tag: u32,
         event: &tracing::Event<'_>,
     ) {
         let es = if let Some(es) = self.find_set(level.into(), keyword) {
@@ -321,7 +322,7 @@ impl crate::native::EventWriter for Provider {
         EBW.with(|eb| {
             let mut eb = eb.borrow_mut();
 
-            eb.reset(&event_name, 0);
+            eb.reset(&event_name, event_tag as u16);
             eb.opcode(Opcode::Info);
 
             eb.add_value(

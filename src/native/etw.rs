@@ -259,6 +259,7 @@ impl super::EventWriter for Provider {
         event_name: &str,
         level: u8,
         keyword: u64,
+        event_tag: u32,
         event: &tracing::Event<'_>,
     ) {
         let mut activity_id: [u8; 16] = *GLOBAL_ACTIVITY_SEED;
@@ -282,7 +283,7 @@ impl super::EventWriter for Provider {
         EBW.with(|eb| {
             let mut eb = eb.borrow_mut();
 
-            eb.reset(event_name, level.into(), keyword, 0);
+            eb.reset(event_name, level.into(), keyword, event_tag);
             eb.opcode(Opcode::Info);
 
             eb.add_systemtime(

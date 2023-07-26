@@ -20,11 +20,12 @@ pub const fn map_level(level: &tracing::Level) -> u8 {
 pub struct EtwEventMetadata {
     pub kw: u64,
     pub identity: tracing::callsite::Identifier,
+    pub event_tag: u32,
 }
 
 #[macro_export]
 macro_rules! etw_event {
-    (target: $target:expr, name: $name:expr, $lvl:expr, $kw:expr, { $($fields:tt)* } )=> ({
+    (target: $target:expr, name: $name:expr, $lvl:expr, $kw:expr, $tags:expr, { $($fields:tt)* } )=> ({
         use tracing::Callsite;
         use const_format::concatcp;
 
@@ -49,7 +50,8 @@ macro_rules! etw_event {
 
         static ETW_META: $crate::EtwEventMetadata = $crate::EtwEventMetadata{
             kw: $kw,
-            identity: tracing_core::identify_callsite!(&CALLSITE)
+            identity: tracing_core::identify_callsite!(&CALLSITE),
+            event_tag: $tags as u32
         };
 
         #[cfg(target_os = "linux")]
@@ -94,14 +96,15 @@ macro_rules! etw_event {
             name: $name,
             $lvl,
             $kw,
+            0,
             { message = format_args!($($arg)+), $($fields)* }
         )
     );
     (target: $target:expr, name: $name:expr, $lvl:expr, $kw:expr, $($k:ident).+ = $($fields:tt)* ) => (
-        $crate::etw_event!(target: $target, name: $name, $lvl, $kw, { $($k).+ = $($fields)* })
+        $crate::etw_event!(target: $target, name: $name, $lvl, $kw, 0, { $($k).+ = $($fields)* })
     );
     (target: $target:expr, name: $name:expr, $lvl:expr, $kw:expr, $($arg:tt)+ ) => (
-        $crate::etw_event!(target: $target, name: $name, $lvl, $kw, { $($arg)+ })
+        $crate::etw_event!(target: $target, name: $name, $lvl, $kw, 0, { $($arg)+ })
     );
     (name: $name:expr, $lvl:expr, $kw:expr, { $($fields:tt)* }, $($arg:tt)+ ) => (
         $crate::etw_event!(
@@ -109,6 +112,7 @@ macro_rules! etw_event {
             name: $name,
             $lvl,
             $kw,
+            0,
             { message = format_args!($($arg)+), $($fields)* }
         )
     );
@@ -118,6 +122,7 @@ macro_rules! etw_event {
             name: $name,
             $lvl,
             $kw,
+            0,
             { message = format_args!($($arg)+), $($fields)* }
         )
     );
@@ -127,6 +132,7 @@ macro_rules! etw_event {
             name: $name,
             $lvl,
             $kw,
+            0,
             { $($k).+ = $($field)*}
         )
     );
@@ -136,6 +142,7 @@ macro_rules! etw_event {
             name: $name,
             $lvl,
             $kw,
+            0,
             { $($k).+, $($field)*}
         )
     );
@@ -145,6 +152,7 @@ macro_rules! etw_event {
             name: $name,
             $lvl,
             $kw,
+            0,
             { ?$($k).+, $($field)*}
         )
     );
@@ -154,19 +162,20 @@ macro_rules! etw_event {
             name: $name,
             $lvl,
             $kw,
+            0,
             { %$($k).+, $($field)*}
         )
     );
     (name: $name:expr, $lvl:expr, $kw:expr, ?$($k:ident).+) => (
-        $crate::etw_event!(name: $name, $lvl, $kw, ?$($k).+,)
+        $crate::etw_event!(name: $name, $lvl, $kw, 0, ?$($k).+,)
     );
     (name: $name:expr, $lvl:expr, $kw:expr, %$($k:ident).+) => (
-        $crate::etw_event!(name: $name, $lvl, $kw, %$($k).+,)
+        $crate::etw_event!(name: $name, $lvl, $kw, 0, %$($k).+,)
     );
     (name: $name:expr, $lvl:expr, $kw:expr, $($k:ident).+) => (
-        $crate::etw_event!(name: $name, $lvl, $kw, $($k).+,)
+        $crate::etw_event!(name: $name, $lvl, $kw, 0, $($k).+,)
     );
     (name: $name:expr, $lvl:expr, $kw:expr, $($arg:tt)+ ) => (
-        $crate::etw_event!(target: module_path!(), name: $name, $lvl, $kw, { $($arg)+ })
+        $crate::etw_event!(target: module_path!(), name: $name, $lvl, $kw, 0, { $($arg)+ })
     );
 }

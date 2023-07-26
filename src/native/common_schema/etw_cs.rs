@@ -249,12 +249,13 @@ impl crate::native::EventWriter for CommonSchemaProvider {
         event_name: &str,
         level: u8,
         keyword: u64,
+        event_tag: u32,
         event: &tracing::Event<'_>,
     ) {
         EBW.with(|eb| {
             let mut eb = eb.borrow_mut();
 
-            eb.reset(event_name, level.into(), keyword, 0);
+            eb.reset(event_name, level.into(), keyword, event_tag);
             eb.opcode(Opcode::Info);
 
             // Promoting values from PartC to PartA extensions is apparently just a draft spec

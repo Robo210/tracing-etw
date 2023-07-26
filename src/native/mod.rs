@@ -120,6 +120,7 @@ pub trait EventWriter {
         event_name: &str,
         level: u8,
         keyword: u64,
+        event_tag: u32,
         event: &tracing::Event<'_>,
     );
 }

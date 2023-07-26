@@ -8,15 +8,11 @@ use tracing_subscriber::{self, fmt::format::FmtSpan, prelude::*};
 // }
 
 fn main() {
-    // let subscriber = tracing_subscriber::fmt::fmt()
-    //     .with_span_events(FmtSpan::FULL)
-    //     .without_time();
-
-    let subscriber = tracing_subscriber::registry()
+    tracing_subscriber::registry()
         .with(LayerBuilder::new("test").build()) // Collects everything
         .with(LayerBuilder::new_common_schema_events("test2").build_with_target("geneva"))
-        .with(tracing_subscriber::fmt::layer().with_span_events(FmtSpan::ACTIVE));
-    let _sub = subscriber.try_init();
+        .with(tracing_subscriber::fmt::layer().with_span_events(FmtSpan::ACTIVE))
+        .init();
 
     #[allow(non_snake_case)]
     let fieldB = "asdf";
