@@ -28,6 +28,7 @@ macro_rules! etw_event {
     (target: $target:expr, name: $name:expr, $lvl:expr, $kw:expr, $tags:expr, { $($fields:tt)* } )=> ({
         use tracing::Callsite;
         use const_format::concatcp;
+        use paste::paste;
 
         static CALLSITE: tracing::callsite::DefaultCallsite =
             tracing::callsite::DefaultCallsite::new(
@@ -56,13 +57,17 @@ macro_rules! etw_event {
 
         #[cfg(target_os = "linux")]
         #[link_section = "_etw_kw"]
-        #[no_mangle]
-        static mut ETW_META_PTR: *const $crate::EtwEventMetadata = &ETW_META;
+        #[allow(non_upper_case_globals)]
+        paste! {
+            static mut [<ETW_META_PTR $name>]: *const $crate::EtwEventMetadata = &ETW_META;
+        }
 
         #[cfg(target_os = "windows")]
         #[link_section = ".rsdata$zRSETW5"]
-        #[no_mangle]
-        static mut ETW_META_PTR: *const $crate::EtwEventMetadata = &ETW_META;
+        #[allow(non_upper_case_globals)]
+        paste! {
+            static mut [<ETW_META_PTR $name>]: *const $crate::EtwEventMetadata = &ETW_META;
+        }
 
         let enabled = tracing::level_enabled!($lvl) && {
             let interest = CALLSITE.interest();

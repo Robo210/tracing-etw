@@ -91,6 +91,32 @@ pub fn user_events_benchmark(c: &mut Criterion) {
             })
         });
     }
+
+    // etw_events
+    {
+        let mut event_group = c.benchmark_group("etw_events");
+        event_group.warm_up_time(std::time::Duration::from_millis(500));
+
+        event_group.bench_function("empty", |b| {
+            b.iter(|| {
+                etw_event!(name: "evtname", Level::INFO, 1, "Enabled event!");
+            })
+        });
+
+        event_group.bench_function("3 fields", |b| {
+            b.iter(|| {
+                etw_event!(
+                    name: "evtname",
+                    Level::INFO,
+                    1,
+                    field1 = 1,
+                    field2 = "asdf",
+                    field3 = 1.1,
+                    "Enabled event!"
+                );
+            })
+        });
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
