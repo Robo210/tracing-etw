@@ -347,8 +347,15 @@ where
         metadata: &tracing::Metadata<'_>,
         _cx: &tracing_subscriber::layer::Context<'_, S>,
     ) -> bool {
+        let etw_meta = EVENT_METADATA.get(&metadata.callsite());
+        let keyword = if let Some(meta) = etw_meta {
+            meta.kw
+        } else {
+            self.default_keyword
+        };
+
         self.provider
-            .enabled(map_level(metadata.level()), self.default_keyword)
+            .enabled(map_level(metadata.level()), keyword)
     }
 
     fn event_enabled(
@@ -356,8 +363,15 @@ where
         event: &tracing::Event<'_>,
         _cx: &tracing_subscriber::layer::Context<'_, S>,
     ) -> bool {
+        let etw_meta = EVENT_METADATA.get(&metadata.callsite());
+        let keyword = if let Some(meta) = etw_meta {
+            meta.kw
+        } else {
+            self.default_keyword
+        };
+
         self.provider
-            .enabled(map_level(event.metadata().level()), self.default_keyword)
+            .enabled(map_level(event.metadata().level()), keyword)
     }
 }
 
