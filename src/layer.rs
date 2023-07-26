@@ -106,6 +106,7 @@ pub struct EtwLayerBuilder<Mode> {
 pub struct LayerBuilder {}
 
 impl LayerBuilder {
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(name: &str) -> EtwLayerBuilder<native::Provider> {
         EtwLayerBuilder::<native::Provider> {
             provider_name: name.to_owned(),
@@ -268,6 +269,7 @@ where
         }
     }
 
+    #[allow(clippy::type_complexity)]
     #[cfg(not(feature = "global_filter"))]
     pub fn build_with_target<S>(
         self,
@@ -288,6 +290,7 @@ where
         layer.with_filter(filter.and(targets))
     }
 
+    #[allow(clippy::type_complexity)]
     #[cfg(not(feature = "global_filter"))]
     pub fn build<S>(self) -> Filtered<EtwLayer<S, Mode::Provider>, EtwFilter<S, Mode::Provider>, S>
     where

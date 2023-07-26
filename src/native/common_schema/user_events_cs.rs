@@ -30,13 +30,10 @@ impl<T> AddFieldAndValue<T> for CommonSchemaPartCBuilder<'_> {
     fn add_field_value(&mut self, fv: &FieldAndValue) {
         let mut field_name: &'static str = fv.field_name;
 
-        match field_name {
-            "message" => {
-                field_name = "Body";
-                assert!(matches!(fv.value, ValueTypes::v_str(_)));
-            }
-            _ => (),
-        };
+        if field_name == "message" {
+            field_name = "Body";
+            assert!(matches!(fv.value, ValueTypes::v_str(_)));
+        }
 
         <&mut EventBuilder as AddFieldAndValue<EventBuilder>>::add_field_value(
             &mut self.eb,
@@ -90,7 +87,7 @@ impl crate::native::EventWriter for CommonSchemaProvider {
     {
         let mut options = eventheader_dynamic::Provider::new_options();
         if let ProviderGroup::Linux(ref name) = provider_group {
-            options = *options.group_name(&name);
+            options = *options.group_name(name);
         }
         let mut provider = eventheader_dynamic::Provider::new(provider_name, &options);
 
@@ -150,7 +147,7 @@ impl crate::native::EventWriter for CommonSchemaProvider {
             .read()
             .unwrap()
             .find_set(eventheader_dynamic::Level::from_int(level), keyword);
-        return if let Some(s) = es { s.enabled() } else { false };
+        if let Some(s) = es { s.enabled() } else { false }
     }
 
     #[inline(always)]
@@ -190,7 +187,7 @@ impl crate::native::EventWriter for CommonSchemaProvider {
 
         let span_id = unsafe {
             let mut span_id = MaybeUninit::<[u8; 16]>::uninit();
-            let mut cur = Cursor::new((&mut *span_id.as_mut_ptr()).as_mut_slice());
+            let mut cur = Cursor::new((*span_id.as_mut_ptr()).as_mut_slice());
             write!(&mut cur, "{:16x}", span.id().into_u64()).expect("!write");
             span_id.assume_init()
         };
@@ -222,7 +219,7 @@ impl crate::native::EventWriter for CommonSchemaProvider {
                 eb.add_struct("ext_dt", 2, 0);
                 {
                     eb.add_str("traceId", "", FieldFormat::Default, 0); // TODO
-                    eb.add_str("spanId", &span_id, FieldFormat::Default, 0);
+                    eb.add_str("spanId", span_id, FieldFormat::Default, 0);
                 }
             }
 
@@ -247,12 +244,12 @@ impl crate::native::EventWriter for CommonSchemaProvider {
                 if let Some(parent) = span_parent {
                     let parent_span_id = unsafe {
                         let mut span_id = MaybeUninit::<[u8; 16]>::uninit();
-                        let mut cur = Cursor::new((&mut *span_id.as_mut_ptr()).as_mut_slice());
+                        let mut cur = Cursor::new((*span_id.as_mut_ptr()).as_mut_slice());
                         write!(&mut cur, "{:16x}", parent.id().into_u64()).expect("!write");
                         span_id.assume_init()
                     };
 
-                    eb.add_str("parentId", &parent_span_id, FieldFormat::Default, 0);
+                    eb.add_str("parentId", parent_span_id, FieldFormat::Default, 0);
                 }
 
                 eb.add_str("name", span_name, FieldFormat::Default, 0);
@@ -333,13 +330,13 @@ impl crate::native::EventWriter for CommonSchemaProvider {
                     {
                         let span_id = unsafe {
                             let mut span_id = MaybeUninit::<[u8; 16]>::uninit();
-                            let mut cur = Cursor::new((&mut *span_id.as_mut_ptr()).as_mut_slice());
+                            let mut cur = Cursor::new((*span_id.as_mut_ptr()).as_mut_slice());
                             write!(&mut cur, "{:16x}", current_span).expect("!write");
                             span_id.assume_init()
                         };
 
                         eb.add_str("traceId", "", FieldFormat::Default, 0); // TODO
-                        eb.add_str("spanId", &span_id, FieldFormat::Default, 0);
+                        eb.add_str("spanId", span_id, FieldFormat::Default, 0);
                     }
                 }
             }

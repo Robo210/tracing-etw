@@ -86,6 +86,7 @@ pub trait EventWriter {
 
     fn supports_enable_callback() -> bool;
 
+    #[allow(clippy::too_many_arguments)]
     fn span_start<'a, 'b, R>(
         self: std::pin::Pin<&Self>,
         span: &'b tracing_subscriber::registry::SpanRef<'a, R>,
@@ -99,6 +100,7 @@ pub trait EventWriter {
     ) where
         R: tracing_subscriber::registry::LookupSpan<'a>;
 
+    #[allow(clippy::too_many_arguments)]
     fn span_stop<'a, 'b, R>(
         self: std::pin::Pin<&Self>,
         span: &'b tracing_subscriber::registry::SpanRef<'a, R>,
@@ -112,6 +114,7 @@ pub trait EventWriter {
     ) where
         R: tracing_subscriber::registry::LookupSpan<'a>;
 
+    #[allow(clippy::too_many_arguments)]
     fn write_record(
         self: std::pin::Pin<&Self>,
         timestamp: std::time::SystemTime,

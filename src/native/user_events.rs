@@ -89,7 +89,7 @@ impl crate::native::EventWriter for Provider {
     {
         let mut options = eventheader_dynamic::Provider::new_options();
         if let ProviderGroup::Linux(ref name) = provider_group {
-            options = *options.group_name(&name);
+            options = *options.group_name(name);
         }
         let mut provider = eventheader_dynamic::Provider::new(provider_name, &options);
 
@@ -149,7 +149,7 @@ impl crate::native::EventWriter for Provider {
             .read()
             .unwrap()
             .find_set(eventheader_dynamic::Level::from_int(level), keyword);
-        return if let Some(s) = es { s.enabled() } else { false };
+        if let Some(s) = es { s.enabled() } else { false }
     }
 
     #[inline(always)]
@@ -212,7 +212,7 @@ impl crate::native::EventWriter for Provider {
                     None
                 },
                 if related_activity_id[0] != 0 {
-                    Some(&related_activity_id)
+                    Some(related_activity_id)
                 } else {
                     None
                 },
@@ -276,7 +276,7 @@ impl crate::native::EventWriter for Provider {
                     None
                 },
                 if related_activity_id[0] != 0 {
-                    Some(&related_activity_id)
+                    Some(related_activity_id)
                 } else {
                     None
                 },
@@ -322,7 +322,7 @@ impl crate::native::EventWriter for Provider {
         EBW.with(|eb| {
             let mut eb = eb.borrow_mut();
 
-            eb.reset(&event_name, event_tag as u16);
+            eb.reset(event_name, event_tag as u16);
             eb.opcode(Opcode::Info);
 
             eb.add_value(

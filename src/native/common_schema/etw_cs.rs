@@ -30,13 +30,10 @@ impl<T> AddFieldAndValue<T> for CommonSchemaPartCBuilder<'_> {
     fn add_field_value(&mut self, fv: &FieldAndValue) {
         let mut field_name: &'static str = fv.field_name;
 
-        match field_name {
-            "message" => {
-                field_name = "Body";
-                assert!(matches!(fv.value, ValueTypes::v_str(_)));
-            }
-            _ => (),
-        };
+        if field_name == "message" {
+            field_name = "Body";
+            assert!(matches!(fv.value, ValueTypes::v_str(_)));
+        }
 
         <&mut EventBuilder as AddFieldAndValue<EventBuilder>>::add_field_value(
             &mut self.eb,
@@ -147,7 +144,7 @@ impl crate::native::EventWriter for CommonSchemaProvider {
 
         let span_id = unsafe {
             let mut span_id = MaybeUninit::<[u8; 16]>::uninit();
-            let mut cur = Cursor::new((&mut *span_id.as_mut_ptr()).as_mut_slice());
+            let mut cur = Cursor::new((*span_id.as_mut_ptr()).as_mut_slice());
             write!(&mut cur, "{:16x}", span.id().into_u64()).expect("!write");
             span_id.assume_init()
         };
@@ -173,7 +170,7 @@ impl crate::native::EventWriter for CommonSchemaProvider {
                 eb.add_struct("ext_dt", 2, 0);
                 {
                     eb.add_str8("traceId", "", OutType::Utf8, 0); // TODO
-                    eb.add_str8("spanId", &span_id, OutType::Utf8, 0);
+                    eb.add_str8("spanId", span_id, OutType::Utf8, 0);
                 }
             }
 
@@ -198,12 +195,12 @@ impl crate::native::EventWriter for CommonSchemaProvider {
                 if let Some(parent) = span_parent {
                     let parent_span_id = unsafe {
                         let mut span_id = MaybeUninit::<[u8; 16]>::uninit();
-                        let mut cur = Cursor::new((&mut *span_id.as_mut_ptr()).as_mut_slice());
+                        let mut cur = Cursor::new((*span_id.as_mut_ptr()).as_mut_slice());
                         write!(&mut cur, "{:16x}", parent.id().into_u64()).expect("!write");
                         span_id.assume_init()
                     };
 
-                    eb.add_str8("parentId", &parent_span_id, OutType::Utf8, 0);
+                    eb.add_str8("parentId", parent_span_id, OutType::Utf8, 0);
                 }
 
                 eb.add_str8("name", span_name, OutType::Utf8, 0);
@@ -278,13 +275,13 @@ impl crate::native::EventWriter for CommonSchemaProvider {
                     {
                         let span_id = unsafe {
                             let mut span_id = MaybeUninit::<[u8; 16]>::uninit();
-                            let mut cur = Cursor::new((&mut *span_id.as_mut_ptr()).as_mut_slice());
+                            let mut cur = Cursor::new((*span_id.as_mut_ptr()).as_mut_slice());
                             write!(&mut cur, "{:16x}", current_span).expect("!write");
                             span_id.assume_init()
                         };
 
                         eb.add_str8("traceId", "", OutType::Utf8, 0); // TODO
-                        eb.add_str8("spanId", &span_id, OutType::Utf8, 0);
+                        eb.add_str8("spanId", span_id, OutType::Utf8, 0);
                     }
                 }
             }
