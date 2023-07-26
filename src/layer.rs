@@ -363,7 +363,7 @@ where
         event: &tracing::Event<'_>,
         _cx: &tracing_subscriber::layer::Context<'_, S>,
     ) -> bool {
-        let etw_meta = EVENT_METADATA.get(&metadata.callsite());
+        let etw_meta = EVENT_METADATA.get(&event.metadata().callsite());
         let keyword = if let Some(meta) = etw_meta {
             meta.kw
         } else {
