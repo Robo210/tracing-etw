@@ -55,17 +55,17 @@ macro_rules! etw_event {
             event_tag: $tags as u32
         };
 
-        #[cfg(target_os = "linux")]
-        #[link_section = "_etw_kw"]
-        #[allow(non_upper_case_globals)]
         paste! {
+            #[cfg(target_os = "linux")]
+            #[link_section = "_etw_kw"]
+            #[allow(non_upper_case_globals)]
             static mut [<ETW_META_PTR $name>]: *const $crate::EtwEventMetadata = &ETW_META;
         }
 
-        #[cfg(target_os = "windows")]
-        #[link_section = ".rsdata$zRSETW5"]
-        #[allow(non_upper_case_globals)]
         paste! {
+            #[cfg(target_os = "windows")]
+            #[link_section = ".rsdata$zRSETW5"]
+            #[allow(non_upper_case_globals)]
             static mut [<ETW_META_PTR $name>]: *const $crate::EtwEventMetadata = &ETW_META;
         }
 
