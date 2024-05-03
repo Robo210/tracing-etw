@@ -34,9 +34,9 @@ pub(crate) static EVENT_METADATA: once_cell::sync::Lazy<
 > = once_cell::sync::Lazy::new(|| {
     unsafe {
         let start =
-            &crate::native::_start__etw_kw as *const usize as *mut *const crate::EtwEventMetadata;
+            core::ptr::addr_of!(crate::native::_start__etw_kw) as *const usize as *mut *const crate::EtwEventMetadata;
         let stop =
-            &crate::native::_stop__etw_kw as *const usize as *mut *const crate::EtwEventMetadata;
+            core::ptr::addr_of!(crate::native::_stop__etw_kw) as *const usize as *mut *const crate::EtwEventMetadata;
 
         #[cfg(target_os = "windows")]
         let start = start.add(1);

@@ -20,10 +20,10 @@ default = ["common_schema"]
 tracing = {version = "0.1", default-features = false, features = ["std"]}
 tracing-core = {version = "0.1", default-features = false}
 tracing-subscriber = {version="0.3", default-features = false, features=["std", "fmt", "registry"]}
-tracelogging = ">= 1.1.0"
-tracelogging_dynamic = ">= 1.1.0"
-eventheader = ">= 0.3.1"
-eventheader_dynamic = ">= 0.3.1"
+tracelogging = ">= 1.2.0"
+tracelogging_dynamic = ">= 1.2.0"
+eventheader = "0.4"
+eventheader_dynamic = "0.4"
 chrono = {version="0.4", default-features = false, features=["std"]}
 once_cell = "1.18"
 const_format = {version="0.2", features=["rust_1_64"]}
@@ -36,7 +36,7 @@ criterion = {version="0.5", features=["html_reports"]}
 tracing = {version = "0.1", default-features = false, features = ["std", "attributes"]}
 
 [target.'cfg(windows)'.dev-dependencies]
-windows = {version="0.48", features=["Win32_System_Diagnostics_Etw", "Win32_Foundation", "Win32_System_Time"]}
+windows = {version="0.56", features=["Win32_System_Diagnostics_Etw", "Win32_Foundation", "Win32_System_Time"]}
 etw_helpers = {version="0.1", path="../etw_helpers"}
 
 [[bench]]

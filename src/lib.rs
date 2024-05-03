@@ -1,3 +1,76 @@
+//! # A [tracing](https://crates.io/crates/tracing) layer for ETW and Linux user_events
+//!
+//! ## Overview
+//!
+//! This layer emits tracing events as Windows ETW events or Linux user-mode tracepoints
+//! (user_events with the [EventHeader](https://github.com/microsoft/LinuxTracepoints/tree/main/libeventheader-tracepoint)
+//! encoding; requires a Linux 6.4+ kernel).
+//! *Note*: Linux kernels without user_events support will not log any events.
+//!
+//! ### ETW
+//!
+//! ETW is a Windows-specific system wide, high performance, lossy tracing API built into the
+//! Windows kernel. Events can be correlated alongside other system activity, such as disk IO,
+//! memory allocations, sample profiling, network activity, or any other event logged by the
+//! thousands of ETW providers built into Windows and 3rd party software and drivers.
+//!
+//! ETW is not designed to be a transport mechanism or message passing interface for
+//! forwarding data. These scenarios are better covered by other technologies
+//! such as RPC or socket-based transports.
+//!
+//! Users unfamiliar with the basics of ETW may find the following links helpful.
+//! The rest of the documentation for this exporter will assume familiarity
+//! with ETW and trace processing tools such as WPA, PerfView, or TraceView.
+//! - <https://learn.microsoft.com/windows/win32/etw/about-event-tracing>
+//! - <https://learn.microsoft.com/windows-hardware/test/weg/instrumenting-your-code-with-etw>
+//!
+//! This layer uses [TraceLogging](https://learn.microsoft.com/windows/win32/tracelogging/trace-logging-about)
+//! to log events. The ETW provider ID is generated from a hash of the specified provider name.
+//!
+//! ### Linux user_events
+//!
+//! User-mode event tracing [(user_events)](https://docs.kernel.org/trace/user_events.html)
+//! is new to the Linux kernel starting with version 6.4. For the purposes of this exporter,
+//! its functionality is nearly identical to ETW. Any differences between the two will be explicitly
+//! called out in these docs.
+//!
+//! The [perf](https://perf.wiki.kernel.org/index.php/Tutorial) tool can be used on Linux to
+//! collect user_events events to a file on disk that can then be processed into a readable
+//! format. Because these events are encoded in the new [EventHeader](https://github.com/microsoft/LinuxTracepoints/)
+//! format, you will need a tool that understands this encoding to process the perf.dat file.
+//! The [decode_perf](https://github.com/microsoft/LinuxTracepoints/tree/main/libeventheader-decode-cpp)
+//! sample tool can be used to do this currently; in the future support will be added to additional tools.
+//!
+//! ## Example
+//!
+//! ```no_run
+//! use tracing::{event, Level};
+//! use tracing_subscriber::{self, prelude::*};
+//! 
+//! tracing_subscriber::registry()
+//!     .with(tracing_etw::LayerBuilder::new("SampleProviderName").build())
+//!     .init();
+//!
+//! event!(Level::INFO, fieldB = b'x', fieldA = 7, "Event Message!");
+//! ```
+//! 
+//! ## etw_event macro
+//! 
+//! **Despite the name, this macro works for both ETW and user_events.**
+//! 
+//! The `etw_event!` macro is an **optional** additional logging macro
+//! based on  `event!` that adds keyword, tags, and event-name support.
+//! Keywords are a fundamental part of efficient event filtering in ETW,
+//! and naming events make them easier to understand in tools like WPA.
+//! It is highly recommended that every event have a non-zero keyword;
+//! the [default_keyword] function can set the default keyword assigned
+//! to every event logged through the `tracing` macros (e.g. `event!`).
+//! 
+//! This extra information is stored as static metadata in the final
+//! compiled binary, and relies on linker support to work properly.
+//! It has been tested with Microsoft's, GCC's, and LLVM's linker.
+//! 
+
 mod layer;
 pub mod native;
 mod values;
