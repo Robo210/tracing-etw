@@ -100,7 +100,6 @@ pub struct EtwEventMetadata {
 macro_rules! etw_event {
     (target: $target:expr, name: $name:expr, $lvl:expr, $kw:expr, $tags:expr, { $($fields:tt)* } )=> ({
         use tracing::Callsite;
-        use const_format::concatcp;
         use paste::paste;
 
         static CALLSITE: tracing::callsite::DefaultCallsite =
